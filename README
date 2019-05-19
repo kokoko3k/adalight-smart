@@ -39,6 +39,8 @@ a) Use different gamma tables that starts with color correction off
 b) Use a threshold so that no smoothing is done if there is not "enough"
    change between colors.
    This way flickering should be gone.
+   cons: conflicts with our implementation; it stops any slow fade we done
+         near his ends because it reaches the threshold.
  
 c) FastLED library provides his own implementation of dithering that
    works far better than mine. but it works on the global brightness

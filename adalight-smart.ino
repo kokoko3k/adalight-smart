@@ -41,12 +41,21 @@ int dither_table_r[NUM_LEDS][dither_steps];
 int dither_table_g[NUM_LEDS][dither_steps];
 int dither_table_b[NUM_LEDS][dither_steps];
 
-/* Configurazione */
+/* Configuration */
+float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 70,170,255 are r,g,b 
+                                  * color corrected maximum values (could be auto calculated by 
+                                  * reading the very last value from the gamma ramps).
+                                  */	
 
-float max_scene_sum = 1630200 ;  //(70+170+255-1) * NUM_LEDS * fixmathscale; //70, 170 e 255 sono le correzioni colore
-float threshold_scene_change = max_scene_sum / 10 ; //max_scene_sum/10; //se la scena cambia abbastanza, fai un fade istantaneo. metti max_scene_sum per disabilitare.
-int steps_to_change_scene = 6; //use # steps to fade from a scene to another
-/* Fine */
+float threshold_scene_change = max_scene_sum / 10 ; /* If the scene changes enough do a fast fade,
+                                                     * Use max_scene_sum to disable the feature.
+													*/ 
+                                                     
+int steps_to_change_scene = 6;                       //use # steps to fade from a scene to another
+
+/* Configuration ends here */
+ 
+
 
 bool new_scene;
 int iSteps;
@@ -183,16 +192,16 @@ unsigned long scene_sum(FCRGB pfleds[]){
 int fsmooth_value_step(int fStart, int fEnd, int ipSteps ){
 	int fdiff = fStart - fEnd;
 	int abs_diff = abs(fdiff);
-	int fstep = abs_diff/ipSteps;  
-	if ( abs_diff > fstep ) {
-		if (fStart > fEnd) {
-				return ( fStart - fstep );
-			} else {
-				return ( fStart + fstep );   
-		}
+	int fstep = abs_diff/ipSteps;
+
+	//We reached the end of the fade:
+	if (abs_diff <= fstep ) { return fEnd ; }
+
+	if (fStart > fEnd) {
+			return ( fStart - fstep );
 		} else {
-		return fEnd ;
-	}    
+			return ( fStart + fstep );   
+	}
 }
 
 void set_dither(uint8_t k,int cdither[][4],int bValue,int a,int b,int c,int d){
@@ -284,17 +293,17 @@ bool step_dithering(bool debug,byte mark,bool force) {
 
 void setup() {
 	FastLED.addLeds<WS2811, DATA_PIN, RGB>(dither_leds,NUM_LEDS);
-																																				/*FastLED.setMaxRefreshRate(999); /* <----------- OCCHIO !
-																																					                                  * dicono che se si aggiornano
-																																					                                  * i led con intervallo
-																																					                                  * inferiore a 2.5ms, si rompono
-																																					                                  * per questo fastled di base
-																																					                                  * metter un delay dopo lo show
-																																					                                  * ma per me questo non va bene
-																																					                                  * quindi gestisco io il delay
-																																					                                  * nella funzione che fa lo show
-																																													 */
-	FastLED.setDither(0); // turn off FastLED dithering
+																/*FastLED.setMaxRefreshRate(999); /* <----------- WATCH OUT !
+																										* dicono che se si aggiornano
+																										* i led con intervallo
+																										* inferiore a 2.5ms, si rompono
+																										* per questo fastled di base
+																										* metter un delay dopo lo show
+																										* ma per me questo non va bene
+																										* quindi gestisco io il delay
+																										* nella funzione che fa lo show
+																										*/
+	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
 	delay(500);
  	LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
@@ -359,8 +368,27 @@ void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
 	
 }
 
+int find_maximum( FCRGB pleds[] ) {
+//Find the maximum of the strip
+	int m,fR,fG,fB;
+	m = 0;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		fR = pleds[i].r;
+		if ( fR > m ) { m = fR ;}
+		fG = pleds[i].g;
+		if ( fG > m ) { m = fG ;}
+		fB = pleds[i].b;
+		if ( fB > m ) { m = fB ;}
+	}
+	return (m);
+}
 
 unsigned long tstart,t0 ;
+int Maximum_found ; 
+float fNfactor,newBrightness;
+#define dither_threshold 64 * fixmathscale // attiva il dithering se il massimo colore (R oppure G oppure B) che trovi 
+                                           //è sotto questa soglia
+
 void loop() {
 	t0=millis();
 	serial_wait_frame_from_hyperion(true);
@@ -383,11 +411,38 @@ void loop() {
 	old_scene_sum=scene_sum(fleds);
 	array_copy(fleds,foldleds,NUM_LEDS);  //<-memorizza i led attuali come led prcedenti
 
+	//Show time
+	Maximum_found=find_maximum(fleds) ;
+    if (Maximum_found < (2*fixmathscale)) {Maximum_found = (2*fixmathscale);} // <-- imposta il setbrightness minimo, è necessario che sia maggiore di 1, 
+												// <-- affinchè il dithering funzioni, da vedere come si comporta con valori maggiori tipo 10, 20..
 
-	step_dithering(false,00,true);
-	step_dithering(false,00,true);
-	step_dithering(false,00,true);
-	step_dithering(false,00,true);
+	if (Maximum_found < dither_threshold) {
+		newBrightness = (float)Maximum_found/fixmathscale;
+		fNfactor = (255 / newBrightness); //fNfactor is in range 0..25500
+		//normalize the strip
+		//Serial.print("Iniziale:") ;Serial.println(fleds[0].g);
+		for (uint8_t i = 0; i < NUM_LEDS; i++) {
+			dither_leds[i].r = (fleds[i].r * fNfactor) / fixmathscale ;
+			dither_leds[i].g = (fleds[i].g * fNfactor) / fixmathscale ;
+			dither_leds[i].b = (fleds[i].b * fNfactor) / fixmathscale ;
+			FastLED.setBrightness(newBrightness);
+		}
+		/*Serial.print("newBrightness:") ;Serial.println(newBrightness);
+		Serial.print("Maximum_found:") ;Serial.println(Maximum_found);
+		Serial.print("fNfactor:") ;Serial.println(fNfactor);
+		Serial.print("Risultato:") ;Serial.println(dither_leds[0].g);*/
+		FastLED.show() ;
+		FastLED.show() ;
+		FastLED.show() ;
+		FastLED.show() ;
+			} else {
+		FastLED.setBrightness(255);
+		step_dithering(false,00,true);
+		step_dithering(false,00,true);
+		step_dithering(false,00,true);
+		step_dithering(false,00,true);
+	}
+		
 	Serial.print("totale: ") ; Serial.println(millis()-tstart);
 	Serial.print("Grantotale: ") ; Serial.println(millis()-t0);
 }
