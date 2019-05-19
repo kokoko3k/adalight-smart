@@ -15,7 +15,7 @@ uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
 #define input_fps 50
 #define ms_needed_to_show 4
 
-#define fixmathscale 100
+#define fixmathscale 100  //please don't change it due to some hardcoded things ( eg: mymodulo100())
 
 //mydebug on:
 #define mydebugln(a) (Serial.println(a))
@@ -69,7 +69,7 @@ unsigned long hyperion_read_time = millis() ;
 
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 1, correzione colore completamente attiva in: 1 passi 
 const PROGMEM unsigned int gamma_r[] = {
-    0, 0, 0, 0, 1, 1, 1, 2, 3, 4, 6, 7, 9, 11, 13, 16, 
+    0, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 13, 16, 
     19, 22, 26, 30, 34, 39, 44, 49, 55, 61, 67, 74, 82, 89, 98, 106, 
     116, 125, 135, 146, 157, 169, 181, 193, 206, 220, 234, 249, 265, 280, 297, 314, 
     332, 350, 369, 388, 408, 429, 451, 473, 495, 519, 543, 567, 593, 619, 645, 673, 
@@ -88,7 +88,7 @@ const PROGMEM unsigned int gamma_r[] = {
 };
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.66, correzione colore completamente attiva in: 1 passi 
 const PROGMEM unsigned int gamma_g[] = {
-    0, 0, 0, 0, 0, 1, 1, 1, 2, 3, 4, 5, 6, 7, 9, 11, 
+    0, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 
     13, 15, 17, 20, 22, 26, 29, 32, 36, 40, 44, 49, 54, 59, 65, 70, 
     76, 83, 89, 96, 104, 111, 119, 128, 136, 145, 155, 164, 175, 185, 196, 207, 
     219, 231, 243, 256, 270, 283, 297, 312, 327, 342, 358, 374, 391, 408, 426, 444, 
@@ -107,8 +107,8 @@ const PROGMEM unsigned int gamma_g[] = {
 };
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.274, correzione colore completamente attiva in: 1 passi 
 const PROGMEM unsigned int gamma_b[] = {
-    0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 4, 4, 
-    5, 6, 7, 8, 9, 11, 12, 13, 15, 17, 18, 20, 22, 25, 27, 29, 
+    0, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 
+    11, 11, 11, 11, 11, 11, 12, 13, 15, 17, 18, 20, 22, 25, 27, 29, 
     32, 34, 37, 40, 43, 46, 50, 53, 57, 60, 64, 68, 72, 77, 81, 86, 
     91, 96, 101, 106, 112, 118, 123, 129, 136, 142, 149, 155, 162, 169, 177, 184, 
     192, 200, 208, 216, 225, 234, 242, 252, 261, 270, 280, 290, 300, 311, 321, 332, 
