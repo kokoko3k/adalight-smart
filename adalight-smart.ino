@@ -225,11 +225,27 @@ int threshold_step3 = (6 * (fixmathscale/ 10));
 int threshold_step4 = (8 * (fixmathscale/ 10));
 
 int I = fixmathscale ;
+
+
+int mymodulo100(int value) {
+	if (value > 20000) { value = value - 20000 ; } 
+	if (value > 10000) { value = value - 10000;} 
+	if (value > 5000) { value = value - 5000 ;}  
+	if (value > 2500) { value = value - 2500 ;} 
+	if (value > 1200) { value = value - 1200 ;} 
+	if (value > 600) { value = value - 600 ;} 
+	if (value > 300) { value = value - 300 ;} 
+	if (value > 150) { value = value - 150 ;} 
+	if (value > 100) { value = value - 100 ;} 
+	return value;
+}
+
+
 void create_dither_tables_component(int pfV,uint8_t j,int current_dither_table[][4]){
 	int bV;
 	int fractional ;
-	fractional = pfV % fixmathscale ;
-	bV = pfV - fractional ;;
+	fractional = mymodulo100(pfV);
+	bV = pfV - fractional ;
 	
 	if ( fractional <= threshold_step1) { set_dither(j,current_dither_table,bV,0,0,0,0); return ; }
 	if ( fractional <= threshold_step2) { set_dither(j,current_dither_table,bV,0,0,0,I); return  ; }
