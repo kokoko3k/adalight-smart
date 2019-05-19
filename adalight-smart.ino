@@ -211,23 +211,10 @@ void set_dither(uint8_t k,int cdither[][4],int bValue,int a,int b,int c,int d){
 	cdither[k][3]=bValue+d;	
 }
 
-/*
- * Questi threshold sono i margini per passare da uno pattern
- * di dithering all'altro.
- * Il pattern dipende dalla parte frazionaria del numero float.
- * Ma dal momento che non usiamo più i float, ma interi * fixmathscale
- * creiamo dei threshold che siano scalati da [0.00..0.00] a [0..99]
-*/
-
-int threshold_step1 = (2 * (fixmathscale/ 10));
-int threshold_step2 = (4 * (fixmathscale/ 10));
-int threshold_step3 = (6 * (fixmathscale/ 10));
-int threshold_step4 = (8 * (fixmathscale/ 10));
-
 int I = fixmathscale ;
 
-
 int mymodulo100(int value) {
+	//Faster version than "%"
 	if (value > 20000) { value = value - 20000 ; } 
 	if (value > 10000) { value = value - 10000;} 
 	if (value > 5000) { value = value - 5000 ;}  
@@ -246,12 +233,12 @@ void create_dither_tables_component(int pfV,uint8_t j,int current_dither_table[]
 	int fractional ;
 	fractional = mymodulo100(pfV);
 	bV = pfV - fractional ;
-	
-	if ( fractional <= threshold_step1) { set_dither(j,current_dither_table,bV,0,0,0,0); return ; }
-	if ( fractional <= threshold_step2) { set_dither(j,current_dither_table,bV,0,0,0,I); return  ; }
-	if ( fractional <= threshold_step3) { set_dither(j,current_dither_table,bV,0,I,0,I); return  ; }
-	if ( fractional <= threshold_step4) { set_dither(j,current_dither_table,bV,0,I,I,I); return  ; }
-									      set_dither(j,current_dither_table,bV,0,0,0,0);
+	//Basing on the value of the fracional part, choose an adeguate dithering pattern.
+	if ( fractional <= 20) { set_dither(j,current_dither_table,bV,0,0,0,0); return ; }
+	if ( fractional <= 40) { set_dither(j,current_dither_table,bV,0,0,0,I); return ; }
+	if ( fractional <= 60) { set_dither(j,current_dither_table,bV,0,I,0,I); return ; }
+	if ( fractional <= 80) { set_dither(j,current_dither_table,bV,0,I,I,I); return ; }
+						     set_dither(j,current_dither_table,bV,0,0,0,0);
 }
 
 void create_dither_tables(FCRGB pfleds[]) {
@@ -269,18 +256,19 @@ bool step_dithering(bool debug,byte mark,bool force) {
 	int time_diff = millis()-previous_dithering_time;
 	if (force) {goto do_dither;}
 
+	//Unused, but it tracks when the next led transmission will arrive
+	//and decides to skip this dither accordingly.
 	if ((millis()-hyperion_read_time) > (total_cycle_time_ms - ms_needed_to_show)) {
 			//previous_dithering_time=millis();
 			//mydebug(mark) ; mydebugln(" have to skip!") ; 
 			return false;
 	}
 
-	// se non è passato abbastanza tempo dal precedente dithering, esci.
+	// If previous dither was not enough time ago, exit.
 	if (time_diff < dither_every_ms) { 
 		if (debug) { mydebug(mark) ;  mydebugln(" Delaying dither"); }
 		return true ; 
 	}
-
 
 	do_dither:
 	if (current_step == dither_steps) {current_step = 0;}
@@ -292,33 +280,14 @@ bool step_dithering(bool debug,byte mark,bool force) {
 	previous_dithering_time=millis();
 	FastLED.show();
 
-									
-									//mydebug("Showing step #") ; mydebug(current_step) ; mydebug(" after ms: ") ; mydebugln(time_diff);
-									
-									//mydebug (String(mark) + String(" step #") );//+ current_step + " r: " + dither_leds[i].r + " Showing step after ms: " + time_diff);
-									//mydebug(mark) ; mydebug(": step #"); mydebug(current_step) ; mydebug(" r: ") ; mydebug(dither_leds[i].r) ; mydebug(" after ms: ") ; mydebugln(time_diff); 
-									//mydebug(" after ms: ") ; mydebugln(time_diff); 
-									
-									
-									
-
+	//mydebug(mark) ; mydebug(": step #"); mydebug(current_step) ; mydebug(" r: ") ; mydebug(dither_leds[i].r) ; mydebug(" after ms: ") ; mydebugln(time_diff); 
 	current_step++;
-
 	return true;
 }
 
 void setup() {
 	FastLED.addLeds<WS2811, DATA_PIN, RGB>(dither_leds,NUM_LEDS);
-																/*FastLED.setMaxRefreshRate(999); /* <----------- WATCH OUT !
-																										* dicono che se si aggiornano
-																										* i led con intervallo
-																										* inferiore a 2.5ms, si rompono
-																										* per questo fastled di base
-																										* metter un delay dopo lo show
-																										* ma per me questo non va bene
-																										* quindi gestisco io il delay
-																										* nella funzione che fa lo show
-																										*/
+
 	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
 	delay(500);
@@ -341,8 +310,9 @@ int max3(int a, int b, int c) {
 }
 
 int new_iSteps(FCRGB src, FCRGB dest) {
-	//dati due colori, restituisce il numero di step da usare per il fade
-	//il numero di step coincide con la differenza intera massima che c'è tra due componenti.
+	/* Given 2 colors, returns the step number to be used to fade.
+	 * The step number is the maximum difference found betweeb 2 components.
+	 */
 	int diff_r,diff_g,diff_b;
 	int abs_diff_r,abs_diff_g,abs_diff_b;
 
@@ -350,7 +320,6 @@ int new_iSteps(FCRGB src, FCRGB dest) {
 	abs_diff_r=abs(diff_r) ; abs_diff_g=abs(diff_g) ; abs_diff_b=abs(diff_b);
 	return ( max3(abs_diff_r,abs_diff_g,abs_diff_b) / fixmathscale );
 }
-
 
 int fsmooth_value_step(int fStart, int fEnd, uint8_t ipSteps ){
 	int fdiff = fStart - fEnd;
@@ -363,7 +332,6 @@ int fsmooth_value_step(int fStart, int fEnd, uint8_t ipSteps ){
 		} else {
 			return ( fStart + fstep );   
 	}
-
 }
 
 void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
@@ -379,9 +347,7 @@ void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
 			pfLeds[i].g = fsmooth_value_step(pfOldLeds[i].g,pfLeds[i].g,iSteps) ;
 			pfLeds[i].b = fsmooth_value_step(pfOldLeds[i].b,pfLeds[i].b,iSteps) ;
 		}
-
 	}
-	
 }
 
 int find_maximum( FCRGB pleds[] ) {
@@ -402,8 +368,7 @@ int find_maximum( FCRGB pleds[] ) {
 unsigned long tstart,t0 ;
 int Maximum_found ; 
 float fNfactor,newBrightness;
-#define dither_threshold 64 * fixmathscale // attiva il dithering se il massimo colore (R oppure G oppure B) che trovi 
-                                           //è sotto questa soglia
+#define dither_threshold 64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
 
 void loop() {
 	t0=millis();
@@ -436,17 +401,13 @@ void loop() {
 		newBrightness = (float)Maximum_found/fixmathscale;
 		fNfactor = (255 / newBrightness); //fNfactor is in range 0..25500
 		//normalize the strip
-		//Serial.print("Iniziale:") ;Serial.println(fleds[0].g);
 		for (uint8_t i = 0; i < NUM_LEDS; i++) {
 			dither_leds[i].r = (fleds[i].r * fNfactor) / fixmathscale ;
 			dither_leds[i].g = (fleds[i].g * fNfactor) / fixmathscale ;
 			dither_leds[i].b = (fleds[i].b * fNfactor) / fixmathscale ;
 			FastLED.setBrightness(newBrightness);
 		}
-		/*Serial.print("newBrightness:") ;Serial.println(newBrightness);
-		Serial.print("Maximum_found:") ;Serial.println(Maximum_found);
-		Serial.print("fNfactor:") ;Serial.println(fNfactor);
-		Serial.print("Risultato:") ;Serial.println(dither_leds[0].g);*/
+
 		FastLED.show() ;
 		FastLED.show() ;
 		FastLED.show() ;
