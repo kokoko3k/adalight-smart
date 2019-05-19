@@ -1,9 +1,8 @@
-/* Veloce, quasi perfetto, 
+/* Veloce, quasi perfetto,
  * unico neo è che passa "troppo tempo" prima dell'inizio del dither,
  * probabilmente perchè ha tempo disponibile per fare altri dithering!
- * quindi il next step è quello di mettere i dither in iun ciclo che termina quando si avvicina il tempo dei dati di hyperion
 */
- 
+
 
 #include "FastLED.h"
 #define NUM_LEDS 33

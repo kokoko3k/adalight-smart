@@ -20,11 +20,12 @@ This sketch performs:
 	* slow fades between frames in the same scene
 	* fast fades between frames when the scene changes
 	* 4bit dithering to overcome WS2812 limitations when apply gamma correction
+	* Fixed point math for performance reasons
 
 
 It works well, but at very low brightness it is still not 100% smooth.
 In paticular i noted a kind of flickering that probably happens
-when leds switches from off state to on state.
+when leds "ping-pong switches" off and on .
 Possible workarounds:
 
 a) Use different gamma tables that starts with color correction off
@@ -39,3 +40,16 @@ b) Use a threshold so that no smoothing is done if there is not "enough"
    change between colors.
    This way flickering should be gone.
  
+c) FastLED library provides his own implementation of dithering that
+   works far better than mine. but it works on the global brightness
+   instead of the single led.
+   I could normalize the leds brightness and then lowering it again
+   by using fastLED dithering. This should give more color precision.
+   pros: great fidelity on dark scenes.
+   cons: nothing changes on bright scenes on colors like FF03FF.
+   cons: may conflict with current smoothing implementation
+         (note: not if we save our strip values before normalize it)
+
+?) Anything else?
+
+9) A mix of the previous!
