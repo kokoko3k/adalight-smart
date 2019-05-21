@@ -86,6 +86,7 @@ const PROGMEM unsigned int gamma_r[] = {
     18205, 18417, 18630, 18845, 19062, 19280, 19500, 19721, 19944, 20168, 20394, 20621, 20850, 21081, 21313, 21546, 
     21781, 22018, 22256, 22496, 22738, 22981, 23226, 23472, 23720, 23969, 24220, 24473, 24727, 24983, 25241, 25500
 };
+
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.66, correzione colore completamente attiva in: 1 passi 
 const PROGMEM unsigned int gamma_g[] = {
     0, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 
@@ -105,6 +106,8 @@ const PROGMEM unsigned int gamma_g[] = {
     12015, 12155, 12296, 12438, 12581, 12725, 12870, 13016, 13163, 13311, 13460, 13610, 13761, 13913, 14066, 14220, 
     14376, 14532, 14689, 14848, 15007, 15167, 15329, 15491, 15655, 15820, 15985, 16152, 16320, 16489, 16659, 16830
 };
+
+
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.274, correzione colore completamente attiva in: 1 passi 
 const PROGMEM unsigned int gamma_b[] = {
     0, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 
@@ -128,7 +131,7 @@ const PROGMEM unsigned int gamma_b[] = {
 
 /*
 // Gamma inizio: 1.5, gamma fine: 2.6, correzione colore: 1
-const PROGMEM float gamma_r[] = {
+const PROGMEM unsigned int gamma_r[] = {
     0, 6, 17, 32, 49, 67, 88, 110, 133, 158, 183, 210, 237, 265, 294, 324, 
     354, 385, 417, 449, 481, 514, 547, 580, 614, 648, 683, 717, 752, 787, 823, 858, 
     894, 930, 966, 1002, 1039, 1075, 1112, 1149, 1186, 1223, 1260, 1297, 1335, 1372, 1410, 1448, 
@@ -146,8 +149,9 @@ const PROGMEM float gamma_r[] = {
     18246, 18454, 18664, 18876, 19090, 19305, 19522, 19741, 19961, 20184, 20407, 20633, 20860, 21089, 21320, 21552, 
     21787, 22022, 22260, 22499, 22740, 22983, 23227, 23473, 23720, 23970, 24221, 24473, 24727, 24983, 25241, 25500
 };
+ 
 // Gamma inizio: 1.5, gamma fine: 2.6, correzione colore: 0.66
-const PROGMEM float gamma_g[] = {
+const PROGMEM unsigned int gamma_g[] = {
     0, 6, 17, 32, 48, 66, 86, 108, 130, 154, 178, 204, 230, 256, 284, 312, 
     340, 368, 397, 427, 456, 486, 516, 546, 577, 607, 638, 668, 699, 730, 761, 792, 
     823, 854, 884, 915, 946, 977, 1008, 1039, 1069, 1100, 1131, 1161, 1192, 1222, 1253, 1283, 
@@ -165,8 +169,9 @@ const PROGMEM float gamma_g[] = {
     12134, 12267, 12401, 12536, 12672, 12810, 12948, 13088, 13230, 13372, 13516, 13661, 13807, 13955, 14103, 14253, 
     14405, 14557, 14711, 14866, 15023, 15180, 15340, 15500, 15661, 15824, 15989, 16154, 16321, 16489, 16659, 16830
 };
+
 // Gamma inizio: 1.5, gamma fine: 2.6, correzione colore: 0.274
-const PROGMEM float gamma_b[] = {
+const PROGMEM unsigned int gamma_b[] = {
     0, 6, 17, 31, 47, 65, 85, 106, 127, 150, 173, 197, 221, 246, 272, 297, 
     323, 349, 375, 402, 428, 455, 481, 508, 534, 560, 587, 613, 639, 665, 690, 716, 
     741, 767, 792, 816, 841, 865, 889, 913, 937, 960, 984, 1007, 1029, 1052, 1074, 1096, 
@@ -482,7 +487,8 @@ void loop() {
 		step_dithering(false,00,true);
 	}
 		
-	Serial.print("totale: ") ; Serial.println(millis()-tstart);
-	Serial.print("Grantotale: ") ; Serial.println(millis()-t0);
+	/*Serial.print("totale: ") ; Serial.println(millis()-tstart);
+	Serial.print("Grantotale: ") ; Serial.println(millis()-t0);*/
+	
 }
 
