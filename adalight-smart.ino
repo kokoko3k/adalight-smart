@@ -289,7 +289,7 @@ int mymodulo100(int value) {
 	if (value > 1200) { value = value - 1200 ;} 
 	if (value > 600) { value = value - 600 ;} 
 	if (value > 300) { value = value - 300 ;} 
-	if (value > 150) { value = value - 150 ;} 
+	if (value > 200) { value = value - 150 ;} 
 	if (value > 100) { value = value - 100 ;} 
 	return value;
 }
@@ -491,4 +491,3 @@ void loop() {
 	Serial.print("Grantotale: ") ; Serial.println(millis()-t0);*/
 	
 }
-
