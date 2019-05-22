@@ -17,6 +17,8 @@ uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
 
 #define fixmathscale 100  //please don't change it due to some hardcoded things ( eg: mymodulo100())
 #define dither_threshold 64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
+#define window 5 // Define the smoothing window size
+
 
 
 struct FCRGB {
@@ -29,6 +31,8 @@ CRGB leds[NUM_LEDS];
 
 FCRGB fleds[NUM_LEDS];
 FCRGB foldleds[NUM_LEDS];
+
+FCRGB windowed_leds[NUM_LEDS][window];
 
 unsigned long tstart ;
 int Maximum_found ; 
@@ -362,6 +366,8 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 }
 
 
+
+
 void loop() {
 	serial_wait_frame_from_hyperion();
 	read_leds_from_hyperion(leds);
@@ -378,8 +384,6 @@ void loop() {
 
 	if (steps_left_to_change_scene > 0) { steps_left_to_change_scene -- ; }
 	smooth_leds(foldleds,fleds);
-	smooth_leds(foldleds,fleds);
-	//create_dither_tables(fleds); //proviamo a spostarlo all'atto dello show.
 	old_scene_sum=scene_sum(fleds);
 	array_copy(fleds,foldleds,NUM_LEDS);  //<-memorizza i led attuali come led prcedenti
 
@@ -417,7 +421,6 @@ void loop() {
 	}
 		
 	Serial.print(F("totale: ")) ; Serial.println(millis()-tstart);
-	/*Serial.print(F("Grantotale: ")) ; Serial.println(millis()-t0);*/
-	
+
 }
 
