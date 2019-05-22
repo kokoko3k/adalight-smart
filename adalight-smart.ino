@@ -16,7 +16,7 @@ uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
 #define input_fps 50
 
 #define fixmathscale 100  //please don't change it due to some hardcoded things ( eg: mymodulo100())
-#define dither_threshold 0//64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
+#define dither_threshold 64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
 #define window 5 // Define the smoothing window size
 
 
