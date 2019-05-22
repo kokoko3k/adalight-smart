@@ -16,7 +16,7 @@ uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
 #define input_fps 50
 
 #define fixmathscale 100  //please don't change it due to some hardcoded things ( eg: mymodulo100())
-#define dither_threshold 64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
+#define dither_threshold 0//64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
 #define window 5 // Define the smoothing window size
 
 
@@ -44,7 +44,7 @@ float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 7
                                   * reading the very last value from the gamma ramps).
                                   */	
 
-float threshold_scene_change = max_scene_sum / 10 ; /* If the scene changes enough do a fast fade,
+float threshold_scene_change = max_scene_sum ;/* / 10 ; /* If the scene changes enough do a fast fade,
                                                      * Use max_scene_sum to disable the feature.
 													*/ 
                                                      
@@ -245,9 +245,6 @@ unsigned long scene_sum(FCRGB pfleds[]){
 	return out;
 }
 
-int I = fixmathscale ;
-
-
 
 void setup() {
 	FastLED.addLeds<WS2811, DATA_PIN, RGB>(leds,NUM_LEDS);
@@ -272,13 +269,12 @@ int max3(int a, int b, int c) {
 	return c ; 
 }
 
-int fsmooth_value_step(int fStart, int fEnd, int ipSteps ){
+int fsmooth_value_step(int fStart, int fEnd, uint8_t ipSteps ){
 	int fdiff = fStart - fEnd;
 	int abs_diff = abs(fdiff);
-	int fstep = abs_diff/ipSteps;
-	//We reached the end of the fade:
-	if (abs_diff <= fstep ) { return fEnd ; }
-
+	int fstep = abs_diff/ipSteps; 
+	if ( abs_diff <= fstep ) { return fEnd ;}
+	
 	if (fStart > fEnd) {
 			return ( fStart - fstep );
 		} else {
@@ -288,15 +284,14 @@ int fsmooth_value_step(int fStart, int fEnd, int ipSteps ){
 
 int new_iSteps(FCRGB src, FCRGB dest) {
 	/* Given 2 colors, returns the step number to be used to fade.
-	 * The step number is the maximum difference found between 2 components.
+	 * The step number is the maximum difference found betweeb 2 components.
 	 */
 	int diff_r,diff_g,diff_b;
 	int abs_diff_r,abs_diff_g,abs_diff_b;
 
 	diff_r=src.r-dest.r    ; diff_g=src.g-dest.g    ; diff_b=src.b-dest.b;
 	abs_diff_r=abs(diff_r) ; abs_diff_g=abs(diff_g) ; abs_diff_b=abs(diff_b);
-
-	return (( max3(abs_diff_r,abs_diff_g,abs_diff_b) ) / fixmathscale );
+	return ( max3(abs_diff_r,abs_diff_g,abs_diff_b) / fixmathscale );
 }
 
 void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
@@ -321,11 +316,11 @@ int find_maximum( FCRGB pleds[] ) {
 	m = 0;
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		fR = pleds[i].r;
-		if ( pleds[i].r > m ) { m = pleds[i].r ;}
+		if ( fR > m ) { m = fR ;}
 		fG = pleds[i].g;
-		if ( pleds[i].g > m ) { m = pleds[i].g ;}
+		if ( fG > m ) { m = fG ;}
 		fB = pleds[i].b;
-		if ( pleds[i].b > m ) { m = pleds[i].b;}
+		if ( fB > m ) { m = fB ;}
 	}
 	return (m);
 }
@@ -365,6 +360,36 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 	}
 }
 
+
+void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
+	static int k;
+	int sum_r = 0;
+	int sum_g = 0;
+	int sum_b = 0;
+	
+	for (uint8_t led = 0; led < NUM_LEDS; led++) {
+		windowed_leds[led][k].r = new_readings[led].r;
+		windowed_leds[led][k].g = new_readings[led].g;
+		windowed_leds[led][k].b = new_readings[led].b;
+
+
+		for (int w = 0 ; w < window ; w++) {
+			sum_r = sum_r + windowed_leds[led][w].r;
+			sum_g = sum_g + windowed_leds[led][w].g;
+			sum_b = sum_b + windowed_leds[led][w].b;			
+		}
+
+
+		averaged[led].r = sum_r/window;
+		averaged[led].g = sum_g/window;
+		averaged[led].b = sum_b/window;
+
+	}
+	
+	k = k + 1 ; //Move the index where next value will go
+	if ( k > ( window-1 ) ) { k = 0;}
+
+}
 
 
 
@@ -409,7 +434,14 @@ void loop() {
 		FastLED.show() ;
 		
 			} else {
-				
+
+		//make_averaged_leds(foldleds,fleds);
+		
+		for (uint8_t i = 0; i < NUM_LEDS; i++) {
+			leds[i].r = (fleds[i].r) / fixmathscale;
+			leds[i].g = (fleds[i].g) / fixmathscale;
+			leds[i].b = (fleds[i].b) / fixmathscale;
+		}
 		FastLED.setBrightness(255);
 		make_dithered_leds(fleds,leds,0);
 		FastLED.show() ;
@@ -418,9 +450,11 @@ void loop() {
 		make_dithered_leds(fleds,leds,2);
 		FastLED.show() ;
 		make_dithered_leds(fleds,leds,3);
+		FastLED.show() ;
 	}
-		
+		//Serial.println(leds[0].r);
 	Serial.print(F("totale: ")) ; Serial.println(millis()-tstart);
+
 
 }
 
