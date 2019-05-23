@@ -13,18 +13,15 @@
 uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
 #define serialRate 500000
 #define dither_steps 4
-#define input_fps 50
 
 #define fixmathscale 100  //please don't change it due to some hardcoded things ( eg: mymodulo100())
-#define dither_threshold 64 * fixmathscale // Use superior FastLED dithering when maximum brightness is under that threshold
 #define window 5 // Define the smoothing window size
 
 
-
 struct FCRGB {
-	int r;
-	int g;
-	int b;
+	uint16_t r;
+	uint16_t g;
+	uint16_t b;
 };
 
 CRGB leds[NUM_LEDS];
@@ -34,39 +31,47 @@ FCRGB foldleds[NUM_LEDS];
 
 FCRGB windowed_leds[NUM_LEDS][window];
 
-unsigned long tstart ;
-int Maximum_found ; 
-float fNfactor,newBrightness;
 
 /* Configuration */
-float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 70,170,255 are r,g,b 
-                                  * color corrected maximum values (could be auto calculated by 
-                                  * reading the very last value from the gamma ramps).
-                                  */	
 
-float threshold_scene_change = max_scene_sum ;/* / 10 ; /* If the scene changes enough do a fast fade,
-                                                     * Use max_scene_sum to disable the feature.
-													*/ 
-                                                     
-int steps_to_change_scene = 6;                       //use # steps to fade from a scene to another
+	float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 70,170,255 are r,g,b 
+									* color corrected maximum values (could be auto calculated by 
+									* reading the very last value from the gamma ramps). */
+
+	float threshold_scene_change = max_scene_sum / 10 ; /* If the scene changes enough do a fast fade,
+														* Use max_scene_sum to disable the feature. */ 
+														
+	uint16_t steps_to_change_scene = 5;				/* use # steps to fade from a scene to another
+														 * note that in addition to that, there are
+														 * window averaged frames (5 actually) */
+
+	#define fastled_dither_threshold 0				 						// Use FastLED dithering when maximum brightness 
+																			// is under that threshold.
+																			// note that it seems to have higher resolution that
+																			// my implementation, but it seems to flicker more too when fps is under 50.
+																			// and unfortunately, till now, tis sketch cannot sustain 50fps with 33leds. (yet?)
+																			// Use: 256*fixmathscale to force FastLED dithering everytime.
+																			// Use: 0 to completely disable it.
 
 /* Configuration ends here */
  
 
-
+unsigned long tstart ;
+uint16_t Maximum_found ; 
+float fNfactor,newBrightness;
 bool new_scene;
-int iSteps;
-int steps_left_to_change_scene;
+uint16_t iSteps;
+uint16_t steps_left_to_change_scene;
 unsigned long current_scene_sum = 0;
 unsigned long old_scene_sum = 0;
-
+float fixmathscale_inv = 1.00/fixmathscale;
 const PROGMEM uint8_t dither_20[] = { 0,0,0,0 };
 const PROGMEM uint8_t dither_40[] = { 0,0,0,1 };
 const PROGMEM uint8_t dither_60[] = { 0,1,0,1 };
 const PROGMEM uint8_t dither_80[] = { 0,1,1,1 };
 
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 1, correzione colore completamente attiva in: 1 passi 
-const PROGMEM unsigned int gamma_r[] = {
+const PROGMEM uint16_t gamma_r[] = {
     0, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 13, 16, 
     19, 22, 26, 30, 34, 39, 44, 49, 55, 61, 67, 74, 82, 89, 98, 106, 
     116, 125, 135, 146, 157, 169, 181, 193, 206, 220, 234, 249, 265, 280, 297, 314, 
@@ -86,7 +91,7 @@ const PROGMEM unsigned int gamma_r[] = {
 };
 
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.66, correzione colore completamente attiva in: 1 passi 
-const PROGMEM unsigned int gamma_g[] = {
+const PROGMEM uint16_t gamma_g[] = {
     0, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 
     13, 15, 17, 20, 22, 26, 29, 32, 36, 40, 44, 49, 54, 59, 65, 70, 
     76, 83, 89, 96, 104, 111, 119, 128, 136, 145, 155, 164, 175, 185, 196, 207, 
@@ -106,7 +111,7 @@ const PROGMEM unsigned int gamma_g[] = {
 };
 
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.274, correzione colore completamente attiva in: 1 passi 
-const PROGMEM unsigned int gamma_b[] = {
+const PROGMEM uint16_t gamma_b[] = {
     0, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 
     11, 11, 11, 11, 11, 11, 12, 13, 15, 17, 18, 20, 22, 25, 27, 29, 
     32, 34, 37, 40, 43, 46, 50, 53, 57, 60, 64, 68, 72, 77, 81, 86, 
@@ -125,10 +130,9 @@ const PROGMEM unsigned int gamma_b[] = {
     5968, 6033, 6098, 6164, 6230, 6297, 6364, 6431, 6499, 6568, 6636, 6706, 6775, 6845, 6916, 6987
 };
 
-
 /*
 // Gamma inizio: 1.5, gamma fine: 2.6, correzione colore: 1
-const PROGMEM unsigned int gamma_r[] = {
+const PROGMEM uint16_t gamma_r[] = {
     0, 6, 17, 32, 49, 67, 88, 110, 133, 158, 183, 210, 237, 265, 294, 324, 
     354, 385, 417, 449, 481, 514, 547, 580, 614, 648, 683, 717, 752, 787, 823, 858, 
     894, 930, 966, 1002, 1039, 1075, 1112, 1149, 1186, 1223, 1260, 1297, 1335, 1372, 1410, 1448, 
@@ -148,7 +152,7 @@ const PROGMEM unsigned int gamma_r[] = {
 };
  
 // Gamma inizio: 1.5, gamma fine: 2.6, correzione colore: 0.66
-const PROGMEM unsigned int gamma_g[] = {
+const PROGMEM uint16_t gamma_g[] = {
     0, 6, 17, 32, 48, 66, 86, 108, 130, 154, 178, 204, 230, 256, 284, 312, 
     340, 368, 397, 427, 456, 486, 516, 546, 577, 607, 638, 668, 699, 730, 761, 792, 
     823, 854, 884, 915, 946, 977, 1008, 1039, 1069, 1100, 1131, 1161, 1192, 1222, 1253, 1283, 
@@ -168,7 +172,7 @@ const PROGMEM unsigned int gamma_g[] = {
 };
 
 // Gamma inizio: 1.5, gamma fine: 2.6, correzione colore: 0.274
-const PROGMEM unsigned int gamma_b[] = {
+const PROGMEM uint16_t gamma_b[] = {
     0, 6, 17, 31, 47, 65, 85, 106, 127, 150, 173, 197, 221, 246, 272, 297, 
     323, 349, 375, 402, 428, 455, 481, 508, 534, 560, 587, 613, 639, 665, 690, 716, 
     741, 767, 792, 816, 841, 865, 889, 913, 937, 960, 984, 1007, 1029, 1052, 1074, 1096, 
@@ -187,9 +191,36 @@ const PROGMEM unsigned int gamma_b[] = {
     6024, 6082, 6141, 6201, 6261, 6323, 6385, 6448, 6512, 6577, 6643, 6710, 6778, 6847, 6916, 6987
 };
 */
+void setup() {
+	FastLED.addLeds<WS2811, DATA_PIN, RGB>(leds,NUM_LEDS);
+	FastLED.setDither(1); 
+	FastLED.setBrightness(255);
+	delay(500);
+ 	LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
+	LEDS.showColor(CRGB(128, 0, 0))	;	delay(100);
+	LEDS.showColor(CRGB(0, 0, 0))	;delay(100);
+	LEDS.showColor(CRGB(0, 0, 0)) ;delay(100);
+	Serial.begin(serialRate);
+	Serial.print(F("Ada\n"));
+}
 
 
-void array_copy(FCRGB* src, FCRGB* dst, int len) {
+uint32_t div10_32(uint32_t in) {
+	// q = in * 0.8;
+	uint32_t q = (in >> 1) + (in >> 2);
+	q = q + (q >> 4);
+	q = q + (q >> 8);
+	q = q + (q >> 16);  // not needed for 16 bit version
+
+	// q = q / 8;  ==> q =  in *0.1;
+	q = q >> 3;
+
+	// determine error
+	uint32_t  r = in - ((q << 3) + (q << 1));   // r = in - q*10;
+	return  q + (r > 9);
+}
+
+void array_copy(FCRGB* src, FCRGB* dst, uint16_t len) {
 // Function to copy 'len' elements from 'src' to 'dst'
 	//memcpy(dst, src, sizeof(src[0])*len);   //0.208ms
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {  //0.145ms
@@ -245,21 +276,7 @@ unsigned long scene_sum(FCRGB pfleds[]){
 	return out;
 }
 
-
-void setup() {
-	FastLED.addLeds<WS2811, DATA_PIN, RGB>(leds,NUM_LEDS);
-	FastLED.setDither(1); 
-	FastLED.setBrightness(255);
-	delay(500);
- 	LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
-	LEDS.showColor(CRGB(128, 0, 0))	;	delay(100);
-	LEDS.showColor(CRGB(0, 0, 0))	;delay(100);
-	LEDS.showColor(CRGB(0, 0, 0)) ;delay(100);
-	Serial.begin(serialRate);
-	Serial.print(F("Ada\n"));
-}
-
-int max3(int a, int b, int c) {
+uint16_t max3(uint16_t a, uint16_t b, uint16_t c) {
 	if ( a > b ) {
 		if ( a > c ) { return a ;}
 	}
@@ -269,10 +286,10 @@ int max3(int a, int b, int c) {
 	return c ; 
 }
 
-int fsmooth_value_step(int fStart, int fEnd, uint8_t ipSteps ){
+uint16_t fsmooth_value_step(uint16_t fStart, uint16_t fEnd, uint8_t ipSteps ){
 	int fdiff = fStart - fEnd;
-	int abs_diff = abs(fdiff);
-	int fstep = abs_diff/ipSteps; 
+	uint16_t abs_diff = abs(fdiff);
+	uint16_t fstep = abs_diff/ipSteps; 
 	if ( abs_diff <= fstep ) { return fEnd ;}
 	
 	if (fStart > fEnd) {
@@ -282,12 +299,12 @@ int fsmooth_value_step(int fStart, int fEnd, uint8_t ipSteps ){
 	}
 }
 
-int new_iSteps(FCRGB src, FCRGB dest) {
+uint16_t new_iSteps(FCRGB src, FCRGB dest) {
 	/* Given 2 colors, returns the step number to be used to fade.
 	 * The step number is the maximum difference found betweeb 2 components.
 	 */
 	int diff_r,diff_g,diff_b;
-	int abs_diff_r,abs_diff_g,abs_diff_b;
+	uint16_t abs_diff_r,abs_diff_g,abs_diff_b;
 
 	diff_r=src.r-dest.r    ; diff_g=src.g-dest.g    ; diff_b=src.b-dest.b;
 	abs_diff_r=abs(diff_r) ; abs_diff_g=abs(diff_g) ; abs_diff_b=abs(diff_b);
@@ -306,13 +323,14 @@ void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
 			pfLeds[i].r = fsmooth_value_step(pfOldLeds[i].r,pfLeds[i].r,iSteps) ;
 			pfLeds[i].g = fsmooth_value_step(pfOldLeds[i].g,pfLeds[i].g,iSteps) ;
 			pfLeds[i].b = fsmooth_value_step(pfOldLeds[i].b,pfLeds[i].b,iSteps) ;
-		}
+			}
 	}
 }
 
-int find_maximum( FCRGB pleds[] ) {
-//Find the maximum of the strip
-	int m,fR,fG,fB;
+uint16_t find_maximum( FCRGB pleds[] ) {
+	//Find the maximum of the strip
+	//Warning!: This does not take color correction into account.
+	uint16_t m,fR,fG,fB;
 	m = 0;
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		fR = pleds[i].r;
@@ -325,8 +343,7 @@ int find_maximum( FCRGB pleds[] ) {
 	return (m);
 }
 
-
-int mymodulo100(int value) {
+uint16_t mymodulo100(uint16_t value) {
 	//Faster version than "%"
 	if (value > 20000) { value = value - 20000 ; }  
 	if (value > 10000) { value = value - 10000;} 
@@ -340,9 +357,9 @@ int mymodulo100(int value) {
 	return value;
 }
 
-uint8_t dithered(int in_value, byte step){
+uint8_t dithered(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
-	byte integer = (in_value - fractional)/100 ;			
+	byte integer = (in_value - fractional) / fixmathscale ;			
 
 	if ( fractional <= 20)	{ return integer  ; }
 	if ( fractional <= 40)	{ return integer + pgm_read_byte_near(dither_40 + step); }
@@ -352,52 +369,57 @@ uint8_t dithered(int in_value, byte step){
 }
 
 void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
-	int integer, fractional ;
-	for (uint8_t led = 0; led < NUM_LEDS; led++) {
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		dithered_leds[i].r = dithered(source_fleds[i].r,step);
 		dithered_leds[i].g = dithered(source_fleds[i].g,step);
 		dithered_leds[i].b = dithered(source_fleds[i].b,step);
 	}
+																							
 }
-
 
 void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
-	static int k;
-	int sum_r = 0;
-	int sum_g = 0;
-	int sum_b = 0;
-	
-	for (uint8_t led = 0; led < NUM_LEDS; led++) {
-		windowed_leds[led][k].r = new_readings[led].r;
-		windowed_leds[led][k].g = new_readings[led].g;
-		windowed_leds[led][k].b = new_readings[led].b;
+	static uint8_t k;
+	unsigned long sum_r = 0;
+	unsigned long sum_g = 0;
+	unsigned long sum_b = 0;
+	float window_inv = 1.00/window;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		windowed_leds[i][k].r = new_readings[i].r;
+		windowed_leds[i][k].g = new_readings[i].g;
+		windowed_leds[i][k].b = new_readings[i].b;
 
-
-		for (int w = 0 ; w < window ; w++) {
-			sum_r = sum_r + windowed_leds[led][w].r;
-			sum_g = sum_g + windowed_leds[led][w].g;
-			sum_b = sum_b + windowed_leds[led][w].b;			
+		sum_r=0;
+		sum_g=0;
+		sum_b=0;
+		
+		for (uint8_t w = 0 ; w < window ; w++) {
+			sum_r = sum_r + windowed_leds[i][w].r;
+			sum_g = sum_g + windowed_leds[i][w].g;
+			sum_b = sum_b + windowed_leds[i][w].b;			
 		}
 
-
-		averaged[led].r = sum_r/window;
-		averaged[led].g = sum_g/window;
-		averaged[led].b = sum_b/window;
-
+		/*averaged[i].r = sum_r/window; //<-- division is heavy!, takes 1ms for 30 itrerations!
+		averaged[i].g = sum_g/window;
+		averaged[i].b = sum_b/window;*/
+		//OR:
+		/*averaged[i].r = sum_r * window_inv;  //multiply for 1/5 is actually faster in float, WTH!
+		averaged[i].g = sum_g * window_inv; 
+		averaged[i].b = sum_b * window_inv;*/
+		//OR:
+		averaged[i].r = div10_32(sum_r) * 2;  // divide by 10 and mul by 2 
+		averaged[i].g = div10_32(sum_g) * 2;  // instead of divide by 5 (the window average size) 
+		averaged[i].b = div10_32(sum_b) * 2;
 	}
-	
+
 	k = k + 1 ; //Move the index where next value will go
 	if ( k > ( window-1 ) ) { k = 0;}
-
 }
 
-
-
 void loop() {
+	tstart=millis();
 	serial_wait_frame_from_hyperion();
 	read_leds_from_hyperion(leds);
 
-	tstart=millis();
 	color_correct(leds,fleds); 
 	current_scene_sum = scene_sum(fleds);
 	new_scene = detect_scene_change(current_scene_sum,old_scene_sum);
@@ -408,26 +430,33 @@ void loop() {
 	}
 
 	if (steps_left_to_change_scene > 0) { steps_left_to_change_scene -- ; }
-	smooth_leds(foldleds,fleds);
+																						
+	smooth_leds(foldleds,fleds); //2.2ms
+
 	old_scene_sum=scene_sum(fleds);
 	array_copy(fleds,foldleds,NUM_LEDS);  //<-memorizza i led attuali come led prcedenti
 
+	make_averaged_leds(foldleds,fleds); //1.65 ms
+	
 	//Show time
 	Maximum_found=find_maximum(fleds) ;
-    if (Maximum_found < (2*fixmathscale)) {Maximum_found = (2*fixmathscale);} // <-- imposta il setbrightness minimo, è necessario che sia maggiore di 1, 
-												// <-- affinchè il dithering funzioni, da vedere come si comporta con valori maggiori tipo 10, 20..
 
-	if (Maximum_found < dither_threshold) {
+    if (Maximum_found < (2*fixmathscale)) {Maximum_found = (2*fixmathscale);}	//	<-- imposta il setbrightness minimo, è necessario che sia maggiore di 1, 
+																				//  <-- affinchè il dithering funzioni, da vedere come si comporta con valori maggiori tipo 10, 20..
+
+	if (Maximum_found < fastled_dither_threshold) {
+																						
 		newBrightness = (float)Maximum_found/fixmathscale;
 		fNfactor = (255 / newBrightness); //fNfactor is in range 0..25500
 		//normalize the strip
+
 		for (uint8_t i = 0; i < NUM_LEDS; i++) {
-			leds[i].r = (fleds[i].r * fNfactor) / fixmathscale ;
-			leds[i].g = (fleds[i].g * fNfactor) / fixmathscale ;
-			leds[i].b = (fleds[i].b * fNfactor) / fixmathscale ;
-			FastLED.setBrightness(newBrightness);
+			leds[i].r = (fleds[i].r * fNfactor) * fixmathscale_inv ;
+			leds[i].g = (fleds[i].g * fNfactor) * fixmathscale_inv ;
+			leds[i].b = (fleds[i].b * fNfactor) * fixmathscale_inv ;
 		}
 
+		FastLED.setBrightness(newBrightness);
 		FastLED.show() ;
 		FastLED.show() ;
 		FastLED.show() ;
@@ -435,22 +464,18 @@ void loop() {
 		
 			} else {
 
-		//make_averaged_leds(foldleds,fleds);
-		
 		for (uint8_t i = 0; i < NUM_LEDS; i++) {
-			leds[i].r = (fleds[i].r) / fixmathscale;
-			leds[i].g = (fleds[i].g) / fixmathscale;
-			leds[i].b = (fleds[i].b) / fixmathscale;
+			leds[i].r = (fleds[i].r) * fixmathscale_inv ;
+			leds[i].g = (fleds[i].g) * fixmathscale_inv ;
+			leds[i].b = (fleds[i].b) * fixmathscale_inv ;
 		}
+
 		FastLED.setBrightness(255);
-		make_dithered_leds(fleds,leds,0);
-		FastLED.show() ;
-		make_dithered_leds(fleds,leds,1);
-		FastLED.show() ;
-		make_dithered_leds(fleds,leds,2);
-		FastLED.show() ;
-		make_dithered_leds(fleds,leds,3);
-		FastLED.show() ;
+
+		make_dithered_leds(fleds,leds,0); 	FastLED.show() ;
+		make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
+		make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
+		make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
 	}
 		//Serial.println(leds[0].r);
 	Serial.print(F("totale: ")) ; Serial.println(millis()-tstart);
