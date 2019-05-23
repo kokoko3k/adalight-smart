@@ -34,16 +34,21 @@ FCRGB windowed_leds[NUM_LEDS][window];
 
 /* Configuration */
 
-	float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 70,170,255 are r,g,b 
-									* color corrected maximum values (could be auto calculated by 
-									* reading the very last value from the gamma ramps). */
+	int min_steps = 20;		//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
+	int max_steps = 70;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
-	float threshold_scene_change = max_scene_sum / 10 ; /* If the scene changes enough do a fast fade,
-														* Use max_scene_sum to disable the feature. */ 
-														
 	uint16_t steps_to_change_scene = 5;				/* use # steps to fade from a scene to another
 														 * note that in addition to that, there are
 														 * window averaged frames (5 actually) */
+	float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 70,170,255 are r,g,b  
+									* color corrected maximum values (could be auto calculated by 
+									* reading the very last value from the gamma ramps). */
+									
+	float threshold_scene_change = max_scene_sum ; /// 10 ; // If the scene changes enough do a fast fade,
+														    // set to: max_scene_sum to disable the feature.
+
+	
+														
 
 	#define fastled_dither_threshold 0				 						// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
@@ -300,15 +305,21 @@ uint16_t fsmooth_value_step(uint16_t fStart, uint16_t fEnd, uint8_t ipSteps ){
 }
 
 uint16_t new_iSteps(FCRGB src, FCRGB dest) {
+	uint16_t out;
 	/* Given 2 colors, returns the step number to be used to fade.
 	 * The step number is the maximum difference found betweeb 2 components.
 	 */
+	if (max_steps == min_steps) {return max_steps;}
+	
 	int diff_r,diff_g,diff_b;
 	uint16_t abs_diff_r,abs_diff_g,abs_diff_b;
 
 	diff_r=src.r-dest.r    ; diff_g=src.g-dest.g    ; diff_b=src.b-dest.b;
 	abs_diff_r=abs(diff_r) ; abs_diff_g=abs(diff_g) ; abs_diff_b=abs(diff_b);
-	return ( max3(abs_diff_r,abs_diff_g,abs_diff_b) / fixmathscale );
+	out = ( max3(abs_diff_r,abs_diff_g,abs_diff_b) / fixmathscale );
+	if (out > max_steps) {return max_steps;}
+	if (out < min_steps) {return min_steps;}
+	return out;
 }
 
 void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
