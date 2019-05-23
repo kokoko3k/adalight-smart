@@ -1,8 +1,9 @@
-/* Veloce, quasi perfetto,
- * unico neo è che passa "troppo tempo" prima dell'inizio del dither,
- * probabilmente perchè ha tempo disponibile per fare altri dithering!
-*/
 
+/* My adalight script for arduino nano.
+ * It does color correction, step based temporal smoothing,
+ * averaged window based temporal smoothing and scene change detection.
+ * It works till 45fps while driving 33 leds without loosing frames.
+*/
 
 #include "FastLED.h"
 
@@ -35,21 +36,20 @@ FCRGB windowed_leds[NUM_LEDS][window];
 /* Configuration */
 
 	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
-		int min_steps = 10;		//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
-		int max_steps = 90;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
+	int min_steps = 15;		//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
+	int max_steps = 40;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
-	bool use_window_average = false ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
 	
-	uint16_t steps_to_change_scene = 5;				/* use # steps to fade from a scene to another
-														 * note that in addition to that, there are
-														 * window averaged frames (5 actually) */
 	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
 									 * where 70,170,255 are r,g,b   color corrected maximum values 
 									   (they are the last value from the gamma ramps). */
 
 	bool scene_change_detection = true;	//Activates the scene change detection that produces fastest fades on scene change.
-		float threshold_scene_change = max_scene_sum / 10;	// If the scene changes enough do a fast fade,
-															// set to: max_scene_sum to disable the feature.
+	float threshold_scene_change = max_scene_sum / 10;	// If the scene changes enough do a fast fade,
+	uint16_t steps_to_change_scene = 6;					/* use # steps to fade from a scene to another
+														 * note that in addition to that, there are
+														 * window averaged frames (5 actually) */
 
 	#define fastled_dither_threshold 0				 						// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
