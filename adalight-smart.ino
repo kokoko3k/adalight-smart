@@ -34,21 +34,22 @@ FCRGB windowed_leds[NUM_LEDS][window];
 
 /* Configuration */
 
-	int min_steps = 20;		//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
-	int max_steps = 70;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
+	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
+		int min_steps = 10;		//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
+		int max_steps = 90;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
+	bool use_window_average = false ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+	
 	uint16_t steps_to_change_scene = 5;				/* use # steps to fade from a scene to another
 														 * note that in addition to that, there are
 														 * window averaged frames (5 actually) */
-	float max_scene_sum = 1630200 ;  /* (70+170+255-1) * NUM_LEDS * fixmathscale ; 70,170,255 are r,g,b  
-									* color corrected maximum values (could be auto calculated by 
-									* reading the very last value from the gamma ramps). */
-									
-	float threshold_scene_change = max_scene_sum ; /// 10 ; // If the scene changes enough do a fast fade,
-														    // set to: max_scene_sum to disable the feature.
+	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
+									 * where 70,170,255 are r,g,b   color corrected maximum values 
+									   (they are the last value from the gamma ramps). */
 
-	
-														
+	bool scene_change_detection = true;	//Activates the scene change detection that produces fastest fades on scene change.
+		float threshold_scene_change = max_scene_sum / 10;	// If the scene changes enough do a fast fade,
+															// set to: max_scene_sum to disable the feature.
 
 	#define fastled_dither_threshold 0				 						// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
@@ -432,22 +433,24 @@ void loop() {
 	read_leds_from_hyperion(leds);
 
 	color_correct(leds,fleds); 
-	current_scene_sum = scene_sum(fleds);
-	new_scene = detect_scene_change(current_scene_sum,old_scene_sum);
-
-	if (new_scene) {
-		if (steps_left_to_change_scene == 0) steps_left_to_change_scene = steps_to_change_scene+1;
-		Serial.print(F("new scene!"));
+	
+	if (scene_change_detection) {
+		current_scene_sum = scene_sum(fleds);
+		new_scene = detect_scene_change(current_scene_sum,old_scene_sum);
+		if (new_scene) {
+			if (steps_left_to_change_scene == 0) steps_left_to_change_scene = steps_to_change_scene+1;
+			Serial.print(F("new scene!"));
+		}
+		if (steps_left_to_change_scene > 0) { steps_left_to_change_scene -- ; }
 	}
-
-	if (steps_left_to_change_scene > 0) { steps_left_to_change_scene -- ; }
 																						
-	smooth_leds(foldleds,fleds); //2.2ms
+	if (use_step_smoothing) { smooth_leds(foldleds,fleds); }  //2.2ms
 
-	old_scene_sum=scene_sum(fleds);
+	if (scene_change_detection) {old_scene_sum=scene_sum(fleds);}
+	
 	array_copy(fleds,foldleds,NUM_LEDS);  //<-memorizza i led attuali come led prcedenti
 
-	make_averaged_leds(foldleds,fleds); //1.65 ms
+	if (use_window_average) { make_averaged_leds(foldleds,fleds);} //1.65 ms
 	
 	//Show time
 	Maximum_found=find_maximum(fleds) ;
