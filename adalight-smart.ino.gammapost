@@ -1,0 +1,593 @@
+
+/* My adalight script for arduino nano.
+ * It does color correction, step based temporal smoothing,
+ * averaged window based temporal smoothing and scene change detection.
+ * It works till 45fps while driving 33 leds without loosing frames.
+*/
+
+extern const uint8_t dither_gamma_r[];
+extern const uint8_t dither_gamma_g[];
+extern const uint8_t dither_gamma_b[];
+
+extern const uint8_t igamma_r[];
+extern const uint8_t igamma_g[];
+extern const uint8_t igamma_b[];
+
+#include "FastLED.h"
+
+#define NUM_LEDS 33
+#define DATA_PIN 3
+#define CLOCK_PIN 13
+#define COLOR_ORDER BRG //RGB //GRB
+uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
+#define serialRate 500000
+#define dither_steps 4
+
+#define window 10 // Define the smoothing window size
+
+CRGB leds[NUM_LEDS];
+CRGB oldleds[NUM_LEDS];
+CRGB show_leds[NUM_LEDS];
+
+CRGB windowed_leds[NUM_LEDS][window];
+
+
+/* Configuration */
+
+	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
+	uint8_t max_steps = 255;		            //1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames) (40)
+											//The lower the value -> the faster the fades.
+
+	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+	
+	uint16_t max_scene_sum = (70+170+255-1)*NUM_LEDS ;	/* in my case: where 70,170,255 are r,g,b   color corrected maximum values 
+													(they are the last value from the gamma ramps). */
+
+	bool scene_change_detection = false;	//Activates the scene change detection that produces fastest fades on scene change.
+	uint16_t threshold_scene_change = max_scene_sum / 10;	// If the scene changes enough do a fast fade,
+	uint16_t steps_to_change_scene = 6;					/* use # steps to fade from a scene to another
+														 * note that in addition to that, there are
+														 * window averaged frames */
+
+	#define fastled_dither_threshold 0				 						// Use FastLED dithering when maximum brightness.is under that threshold.
+																			// Currently brokwn, do not use.
+
+
+/* Configuration ends here */
+ 
+unsigned long tstart ;
+uint16_t Maximum_found ; 
+float Nfactor,newBrightness;
+bool new_scene;
+uint16_t iSteps;
+uint16_t steps_left_to_change_scene;
+uint16_t current_scene_sum = 0;
+uint16_t old_scene_sum = 0;
+
+void setup() {
+	FastLED.addLeds<WS2811, DATA_PIN, COLOR_ORDER>(show_leds,NUM_LEDS);
+	FastLED.setDither(1); 
+	FastLED.setBrightness(255);
+	delay(500);
+ 	LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
+	LEDS.showColor(CRGB(128, 0, 0))	;	delay(100);
+	LEDS.showColor(CRGB(0, 0, 0))	;delay(100);
+	LEDS.showColor(CRGB(0, 0, 0)) ;delay(100);
+	Serial.begin(serialRate);
+	Serial.print(F("Ada\n"));
+}
+
+void array_copy(CRGB* src, CRGB* dst, uint8_t len) {
+// Function to copy 'len' elements from 'src' to 'dst'
+	//memcpy(dst, src, sizeof(src[0])*len);   //0.208ms
+	for (uint8_t i = 0; i < len; i++) {  //0.145ms
+		dst[i].r=src[i].r;
+		dst[i].g=src[i].g;
+		dst[i].b=src[i].b;
+	}
+}
+
+bool detect_scene_change(int current_scene_sum, int old_scene_sum ) {
+ 	int diff = current_scene_sum - old_scene_sum;
+	uint16_t abs_diff=abs(diff);
+	return abs_diff > threshold_scene_change  ;
+}
+
+void serial_wait_frame_from_hyperion() {
+	for(i = 0; i < sizeof prefix; ++i) {				// wait for first byte of Magic Word
+		waitLoop: while (!Serial.available()) ;;
+		if(prefix[i] == Serial.read()) continue;		// Check next byte in Magic Word
+		i = 0;											// otherwise, start over
+		goto waitLoop;
+	}
+	while (!Serial.available()) ;; hi = Serial.read();	// Hi, Lo, Checksum
+	while (!Serial.available()) ;; lo = Serial.read();
+	while (!Serial.available()) ;; chk = Serial.read();
+	if (chk != (hi ^ lo ^ 0x55)) {						// if checksum does not match go back to wait
+		i=0;
+		goto waitLoop;
+	}
+}
+
+void read_leds_from_hyperion(CRGB pleds[]) {
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		while(!Serial.available()); pleds[i].r = Serial.read();
+		while(!Serial.available()); pleds[i].g = Serial.read();
+		while(!Serial.available()); pleds[i].b = Serial.read();	
+	}
+}
+
+int scene_sum(CRGB pfleds[]){
+	uint16_t out = 0;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		out = out + pfleds[i].r + pfleds[i].g +pfleds[i].b;  
+	}
+	return out;
+}
+
+uint8_t max3(uint8_t a, uint8_t b, uint8_t c) {
+	if ( a > b ) {
+		if ( a > c ) { return a ;}
+	}
+	if ( b > a ) {
+		if (b > c ) { return b; }
+	}
+	return c ; 
+}
+
+uint8_t iSmooth_value_step(uint8_t fStart, uint8_t fEnd, uint8_t ipSteps ){
+	int fdiff = fStart - fEnd;
+	uint8_t abs_diff = abs(fdiff);
+	uint8_t fstep = abs_diff/ipSteps; 
+	
+	if ( abs_diff <= fstep ) { return fEnd ;}
+	
+	if (fStart > fEnd) {
+			return ( fStart - fstep );
+		} else {
+			return ( fStart + fstep );   
+	}
+}
+
+uint8_t new_iSteps(CRGB src, CRGB dest) {
+	uint16_t out;
+	/* Given 2 colors, returns the step number to be used to fade.
+	 * The step number is the maximum difference found betweeb 2 components.
+	 */
+	int diff_r,diff_g,diff_b;
+	uint8_t abs_diff_r,abs_diff_g,abs_diff_b;
+
+	diff_r=src.r-dest.r    ; diff_g=src.g-dest.g    ; diff_b=src.b-dest.b;
+	abs_diff_r=abs(diff_r) ; abs_diff_g=abs(diff_g) ; abs_diff_b=abs(diff_b);
+	out = max3(abs_diff_r,abs_diff_g,abs_diff_b) ;
+	if (out > max_steps) {return max_steps;}
+	return out;
+}
+
+void smooth_leds(CRGB pOldLeds[], CRGB pLeds[]){
+	bool changing_scene = (steps_left_to_change_scene > 0);
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		if (changing_scene) {
+				iSteps = steps_left_to_change_scene;
+			} else {
+				iSteps=new_iSteps(pOldLeds[i],pLeds[i]) ;
+		}
+		if (iSteps > 0) {
+			pLeds[i].r = iSmooth_value_step(pOldLeds[i].r,pLeds[i].r,iSteps) ;
+			pLeds[i].g = iSmooth_value_step(pOldLeds[i].g,pLeds[i].g,iSteps) ;
+			pLeds[i].b = iSmooth_value_step(pOldLeds[i].b,pLeds[i].b,iSteps) ;
+			}
+	}
+}
+
+uint8_t find_maximum( CRGB pleds[] ) {
+	//Find the maximum color component value of the strip
+	//FIXME!: This does not take color correction into account.
+	uint8_t m,R,G,B;
+	m = 0;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		R = pleds[i].r;
+		if ( R > m ) { m = R ;}
+		G = pleds[i].g;
+		if ( G > m ) { m = G ;}
+		B = pleds[i].b;
+		if ( B > m ) { m = B ;}
+	}
+	return (m);
+}
+
+void make_averaged_leds(CRGB new_readings[],CRGB averaged[]) {
+	static uint8_t k;
+	uint16_t sum_r = 0;
+	uint16_t sum_g = 0;
+	uint16_t sum_b = 0;
+	float window_inv = 1.00/window;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		windowed_leds[i][k].r = new_readings[i].r;
+		windowed_leds[i][k].g = new_readings[i].g;
+		windowed_leds[i][k].b = new_readings[i].b;
+
+		sum_r=0;
+		sum_g=0;
+		sum_b=0;
+		
+		for (uint8_t w = 0 ; w < window ; w++) {
+			sum_r = sum_r + windowed_leds[i][w].r;
+			sum_g = sum_g + windowed_leds[i][w].g;
+			sum_b = sum_b + windowed_leds[i][w].b;			
+		}
+
+		averaged[i].r = sum_r / window ;
+		averaged[i].g = sum_g / window ;
+		averaged[i].b = sum_b / window ;
+	}
+
+	k = k + 1 ; //Move the index where next value will go
+	if ( k > ( window-1 ) ) { k = 0;}
+}
+
+void normalize(CRGB pleds[],float pNfactor) {
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		pleds[i].r = pleds[i].r * pNfactor ;
+		pleds[i].g = pleds[i].g * pNfactor ;
+		pleds[i].b = pleds[i].b * pNfactor ;
+	}
+}
+
+void apply_gamma_int(CRGB sourceLeds[],CRGB destLEDS[]){
+	//Apply simple and imprecise integer gamma correction
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		destLEDS[i].r = pgm_read_byte_near( igamma_r + sourceLeds[i].r) ;
+		destLEDS[i].g = pgm_read_byte_near( igamma_g + sourceLeds[i].g) ;
+		destLEDS[i].b = pgm_read_byte_near( igamma_b + sourceLeds[i].b) ;
+	}	
+}
+
+void show_gamma_dither(CRGB pleds[], uint8_t dither_step){
+	uint16_t dither_offset = 256 * dither_step;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {  
+		show_leds[i].r = pgm_read_byte_near(dither_gamma_r + pleds[i].r + dither_offset);
+		show_leds[i].g = pgm_read_byte_near(dither_gamma_g + pleds[i].g + dither_offset );
+		show_leds[i].b = pgm_read_byte_near(dither_gamma_b + pleds[i].b + dither_offset );
+	}
+	FastLED.delay(1);
+}
+
+void loop() {
+	tstart=millis();
+
+	serial_wait_frame_from_hyperion();
+
+	read_leds_from_hyperion(leds);
+
+	if (scene_change_detection) {
+		current_scene_sum = scene_sum(leds);
+		new_scene = detect_scene_change(current_scene_sum,old_scene_sum);
+		if (new_scene) {
+			if (steps_left_to_change_scene == 0) steps_left_to_change_scene = steps_to_change_scene+1;
+			Serial.print(F("new scene!"));
+		}
+		if (steps_left_to_change_scene > 0) { steps_left_to_change_scene -- ; }
+	}
+
+	if (use_step_smoothing) { smooth_leds(oldleds,leds); }
+
+	if (scene_change_detection) { old_scene_sum = scene_sum(leds) ; }
+	
+	array_copy(leds,oldleds,NUM_LEDS);  //<-Store actual leds as previous ones.
+
+	if (use_window_average) { make_averaged_leds(oldleds,leds) ; } 
+	
+	/* SHOW TIME ************************************************************/
+
+	Maximum_found=find_maximum(leds) ;
+
+    if (Maximum_found < 2) { Maximum_found = 2;}		//	<-- imposta il setbrightness minimo, è necessario che sia maggiore di 1, 
+													    //  <-- affinchè il dithering funzioni, da vedere come si comporta con valori maggiori tipo 10, 20..
+
+	if (Maximum_found < fastled_dither_threshold) {
+
+		newBrightness = Maximum_found;
+		Nfactor = (255 / newBrightness); //fNfactor is in range 1..127
+		Serial.print("nfactor: "); Serial.println(Nfactor);
+		normalize(leds,Nfactor);
+		apply_gamma_int(leds,show_leds);
+
+		FastLED.setBrightness(newBrightness);
+																					// aumentare i 5 passi in modo che ci sia continuità fino alla prossima trasmissione
+																					// (o variare il framerate)
+		for (uint8_t i = 0; i < 4; i++) {
+			FastLED.delay(1) ;
+		}
+
+		
+	} else {
+
+																					// aumentare i 5 passi in modo che ci sia continuità fino alla prossima trasmissione
+																					// (o variare il framerate)
+		FastLED.setBrightness(255);
+		show_gamma_dither(leds,0);
+		show_gamma_dither(leds,1);
+		show_gamma_dither(leds,2);
+		show_gamma_dither(leds,3);
+
+		/*Serial.print(F("r: ")) ; Serial.println(show_leds[0].r);
+		Serial.print(F("g: ")) ; Serial.println(show_leds[0].g);
+		Serial.print(F("b: ")) ; Serial.println(show_leds[0].b);*/
+	}
+
+	//Serial.print(F("totale: ")) ; Serial.println(millis()-tstart);
+
+
+}
+
+// Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 1
+const PROGMEM uint8_t dither_gamma_r[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 
+    3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 
+    7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 
+    12, 13, 13, 14, 14, 15, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 
+    20, 21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 27, 27, 28, 29, 29, 
+    30, 31, 31, 32, 33, 34, 34, 35, 36, 37, 37, 38, 39, 40, 41, 42, 
+    42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 
+    58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 69, 70, 71, 72, 73, 75, 
+    76, 77, 78, 80, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 94, 96, 
+    97, 99, 100, 102, 103, 104, 106, 108, 109, 111, 112, 114, 115, 117, 119, 120, 
+    122, 123, 125, 127, 129, 130, 132, 134, 135, 137, 139, 141, 143, 144, 146, 148, 
+    150, 152, 154, 156, 158, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 
+    182, 184, 186, 188, 191, 193, 195, 197, 199, 202, 204, 206, 208, 211, 213, 215, 
+    218, 220, 222, 225, 227, 230, 232, 235, 237, 240, 242, 245, 247, 250, 252, 255,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 
+    3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 
+    7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 
+    13, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 
+    20, 21, 21, 22, 22, 23, 24, 24, 25, 25, 26, 27, 27, 28, 29, 29, 
+    30, 31, 32, 32, 33, 34, 34, 35, 36, 37, 38, 38, 39, 40, 41, 42, 
+    43, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 
+    58, 59, 60, 61, 62, 63, 64, 65, 67, 68, 69, 70, 71, 72, 74, 75, 
+    76, 77, 78, 80, 81, 82, 84, 85, 86, 88, 89, 90, 92, 93, 94, 96, 
+    97, 99, 100, 102, 103, 105, 106, 108, 109, 111, 112, 114, 116, 117, 119, 120, 
+    122, 124, 125, 127, 129, 130, 132, 134, 136, 137, 139, 141, 143, 145, 147, 148, 
+    150, 152, 154, 156, 158, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 
+    182, 184, 186, 189, 191, 193, 195, 197, 200, 202, 204, 206, 209, 211, 213, 216, 
+    218, 220, 223, 225, 227, 230, 232, 235, 237, 240, 242, 245, 247, 250, 253, 255,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 
+    3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 
+    7, 7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 
+    12, 13, 13, 14, 14, 15, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 
+    20, 21, 21, 22, 22, 23, 23, 24, 25, 25, 26, 27, 27, 28, 29, 29, 
+    30, 31, 31, 32, 33, 34, 34, 35, 36, 37, 37, 38, 39, 40, 41, 42, 
+    42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 
+    58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 69, 70, 71, 72, 73, 75, 
+    76, 77, 78, 80, 81, 82, 83, 85, 86, 87, 89, 90, 92, 93, 94, 96, 
+    97, 99, 100, 102, 103, 104, 106, 108, 109, 111, 112, 114, 115, 117, 119, 120, 
+    122, 123, 125, 127, 129, 130, 132, 134, 135, 137, 139, 141, 143, 144, 146, 148, 
+    150, 152, 154, 156, 158, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 
+    182, 184, 186, 188, 191, 193, 195, 197, 199, 202, 204, 206, 208, 211, 213, 215, 
+    218, 220, 222, 225, 227, 230, 232, 235, 237, 240, 242, 245, 247, 250, 252, 255,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 
+    1, 2, 2, 2, 2, 1, 2, 2, 2, 3, 3, 3, 2, 3, 3, 3, 
+    4, 4, 3, 4, 4, 5, 5, 4, 5, 5, 6, 5, 6, 6, 7, 6, 
+    7, 8, 8, 8, 9, 9, 9, 9, 10, 10, 11, 11, 11, 12, 11, 12, 
+    13, 13, 14, 13, 15, 14, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 
+    20, 20, 22, 21, 23, 23, 24, 24, 24, 26, 26, 26, 28, 28, 28, 30, 
+    30, 30, 32, 32, 33, 33, 35, 35, 36, 36, 38, 39, 39, 40, 40, 41, 
+    43, 44, 45, 45, 46, 47, 48, 48, 49, 50, 51, 52, 53, 54, 55, 56, 
+    57, 58, 60, 61, 62, 63, 64, 66, 67, 68, 68, 70, 71, 73, 74, 74, 
+    76, 77, 79, 79, 81, 83, 84, 85, 86, 88, 89, 91, 91, 93, 95, 96, 
+    98, 98, 100, 101, 103, 105, 106, 107, 109, 110, 113, 114, 116, 117, 118, 121, 
+    122, 124, 126, 127, 128, 131, 132, 134, 136, 138, 139, 141, 142, 145, 147, 149, 
+    150, 152, 154, 156, 157, 159, 161, 163, 165, 167, 169, 171, 173, 175, 178, 180, 
+    182, 184, 187, 189, 190, 192, 195, 198, 200, 201, 204, 207, 209, 211, 213, 216, 
+    218, 220, 223, 225, 228, 230, 233, 234, 237, 239, 243, 244, 248, 250, 253, 255
+};
+// Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.66
+const PROGMEM uint8_t dither_gamma_g[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 
+    2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 
+    5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 
+    8, 8, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 
+    13, 14, 14, 14, 15, 15, 15, 16, 16, 17, 17, 17, 18, 18, 19, 19, 
+    20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 
+    28, 29, 29, 30, 30, 31, 31, 32, 33, 33, 34, 35, 35, 36, 37, 37, 
+    38, 39, 39, 40, 41, 42, 42, 43, 44, 44, 45, 46, 47, 48, 48, 49, 
+    50, 51, 52, 52, 53, 54, 55, 56, 57, 58, 59, 59, 60, 61, 62, 63, 
+    64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+    80, 81, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 97, 98, 
+    99, 100, 101, 103, 104, 105, 107, 108, 109, 111, 112, 113, 115, 116, 117, 119, 
+    120, 121, 123, 124, 126, 127, 129, 130, 132, 133, 134, 136, 138, 139, 141, 142, 
+    144, 145, 147, 148, 150, 152, 153, 155, 156, 158, 160, 161, 163, 165, 166, 168,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 
+    2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 
+    5, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 
+    8, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 
+    13, 14, 14, 14, 15, 15, 16, 16, 16, 17, 17, 18, 18, 19, 19, 19, 
+    20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 28, 
+    28, 29, 29, 30, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 37, 38, 
+    38, 39, 40, 40, 41, 42, 42, 43, 44, 45, 45, 46, 47, 48, 49, 49, 
+    50, 51, 52, 53, 54, 54, 55, 56, 57, 58, 59, 60, 61, 61, 62, 63, 
+    64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+    81, 82, 83, 84, 85, 86, 87, 88, 90, 91, 92, 93, 94, 96, 97, 98, 
+    99, 100, 102, 103, 104, 106, 107, 108, 109, 111, 112, 113, 115, 116, 117, 119, 
+    120, 122, 123, 124, 126, 127, 129, 130, 132, 133, 135, 136, 138, 139, 141, 142, 
+    144, 145, 147, 149, 150, 152, 153, 155, 157, 158, 160, 162, 163, 165, 167, 168,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 
+    2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 
+    5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 
+    8, 8, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 
+    13, 14, 14, 14, 15, 15, 15, 16, 16, 17, 17, 17, 18, 18, 19, 19, 
+    20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 
+    28, 29, 29, 30, 30, 31, 31, 32, 33, 33, 34, 35, 35, 36, 37, 37, 
+    38, 39, 39, 40, 41, 42, 42, 43, 44, 44, 45, 46, 47, 48, 48, 49, 
+    50, 51, 52, 52, 53, 54, 55, 56, 57, 58, 59, 59, 60, 61, 62, 63, 
+    64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+    80, 81, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 97, 98, 
+    99, 100, 101, 103, 104, 105, 107, 108, 109, 111, 112, 113, 115, 116, 117, 119, 
+    120, 121, 123, 124, 126, 127, 129, 130, 132, 133, 134, 136, 138, 139, 141, 142, 
+    144, 145, 147, 148, 150, 152, 153, 155, 156, 158, 160, 161, 163, 165, 166, 168,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 
+    0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 2, 2, 2, 
+    2, 3, 3, 3, 2, 3, 3, 3, 4, 4, 4, 3, 4, 4, 5, 5, 
+    4, 5, 5, 6, 6, 5, 6, 6, 7, 7, 6, 7, 8, 8, 7, 8, 
+    9, 9, 9, 9, 10, 9, 10, 11, 11, 11, 12, 12, 12, 13, 13, 13, 
+    14, 13, 14, 15, 14, 15, 16, 16, 17, 16, 17, 18, 18, 19, 19, 20, 
+    20, 21, 20, 22, 21, 22, 22, 23, 23, 25, 24, 26, 26, 27, 27, 28, 
+    28, 28, 29, 29, 31, 31, 32, 33, 33, 34, 34, 34, 36, 36, 36, 38, 
+    38, 38, 40, 40, 41, 41, 43, 43, 44, 45, 46, 46, 47, 47, 49, 50, 
+    50, 51, 51, 53, 54, 55, 55, 56, 57, 57, 58, 60, 61, 62, 63, 64, 
+    64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 78, 79, 80, 
+    81, 82, 82, 83, 85, 86, 87, 89, 90, 90, 92, 93, 95, 96, 96, 98, 
+    99, 101, 102, 103, 104, 106, 106, 108, 110, 110, 112, 114, 114, 116, 118, 118, 
+    120, 122, 123, 125, 126, 128, 128, 130, 131, 133, 135, 136, 137, 139, 140, 143, 
+    143, 146, 147, 149, 150, 151, 154, 155, 157, 158, 160, 162, 163, 165, 167, 169
+};
+// Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 0.274
+const PROGMEM uint8_t dither_gamma_b[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 
+    2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 
+    3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 
+    5, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 
+    8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11, 11, 
+    12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 
+    16, 16, 16, 17, 17, 17, 17, 18, 18, 18, 19, 19, 19, 20, 20, 20, 
+    21, 21, 21, 22, 22, 22, 23, 23, 24, 24, 24, 25, 25, 25, 26, 26, 
+    27, 27, 27, 28, 28, 29, 29, 29, 30, 30, 31, 31, 32, 32, 32, 33, 
+    33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40, 41, 
+    41, 42, 42, 43, 43, 44, 44, 45, 45, 46, 46, 47, 47, 48, 49, 49, 
+    50, 50, 51, 52, 52, 53, 53, 54, 55, 55, 56, 56, 57, 58, 58, 59, 
+    60, 60, 61, 62, 62, 63, 64, 64, 65, 66, 66, 67, 68, 68, 69, 70,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 
+    2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 
+    6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 
+    8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11, 11, 12, 
+    12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 15, 15, 15, 15, 16, 
+    16, 16, 16, 17, 17, 17, 18, 18, 18, 19, 19, 19, 20, 20, 20, 21, 
+    21, 21, 22, 22, 22, 23, 23, 23, 24, 24, 24, 25, 25, 26, 26, 26, 
+    27, 27, 28, 28, 28, 29, 29, 30, 30, 30, 31, 31, 32, 32, 33, 33, 
+    34, 34, 34, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40, 41, 
+    41, 42, 42, 43, 43, 44, 44, 45, 45, 46, 47, 47, 48, 48, 49, 49, 
+    50, 51, 51, 52, 52, 53, 54, 54, 55, 55, 56, 57, 57, 58, 58, 59, 
+    60, 60, 61, 62, 62, 63, 64, 64, 65, 66, 66, 67, 68, 69, 69, 70,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 
+    2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 
+    3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 
+    5, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 
+    8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11, 11, 
+    12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 
+    16, 16, 16, 17, 17, 17, 17, 18, 18, 18, 19, 19, 19, 20, 20, 20, 
+    21, 21, 21, 22, 22, 22, 23, 23, 24, 24, 24, 25, 25, 25, 26, 26, 
+    27, 27, 27, 28, 28, 29, 29, 29, 30, 30, 31, 31, 32, 32, 32, 33, 
+    33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40, 41, 
+    41, 42, 42, 43, 43, 44, 44, 45, 45, 46, 46, 47, 47, 48, 49, 49, 
+    50, 50, 51, 52, 52, 53, 53, 54, 55, 55, 56, 56, 57, 58, 58, 59, 
+    60, 60, 61, 62, 62, 63, 64, 64, 65, 66, 66, 67, 68, 68, 69, 70,
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 
+    1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 2, 
+    2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 3, 3, 3, 4, 4, 
+    4, 4, 3, 3, 4, 4, 4, 5, 5, 5, 4, 4, 5, 5, 6, 6, 
+    6, 5, 6, 6, 6, 7, 7, 6, 6, 7, 7, 8, 8, 7, 8, 8, 
+    9, 9, 8, 9, 9, 10, 10, 9, 10, 10, 11, 11, 10, 11, 11, 12, 
+    11, 12, 12, 13, 12, 13, 13, 14, 13, 14, 14, 15, 14, 15, 16, 16, 
+    16, 16, 17, 16, 17, 18, 18, 18, 18, 19, 19, 19, 20, 19, 20, 21, 
+    20, 21, 22, 22, 22, 23, 23, 24, 23, 24, 25, 24, 25, 26, 26, 27, 
+    26, 27, 28, 28, 29, 28, 29, 30, 30, 31, 30, 31, 31, 32, 33, 33, 
+    34, 34, 35, 34, 36, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40, 
+    41, 41, 42, 42, 44, 43, 45, 45, 46, 46, 47, 47, 48, 48, 48, 50, 
+    50, 51, 51, 51, 53, 53, 54, 54, 54, 56, 56, 57, 57, 57, 59, 59, 
+    59, 61, 61, 61, 63, 63, 63, 65, 65, 65, 67, 67, 67, 69, 69, 70
+};
+
+
+// Gamma 2.6, correzione colore: 1
+const PROGMEM uint8_t igamma_r[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 
+    3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 6, 6, 6, 6, 7, 
+    7, 7, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 
+    13, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 
+    20, 21, 21, 22, 22, 23, 24, 24, 25, 25, 26, 27, 27, 28, 29, 29, 
+    30, 31, 31, 32, 33, 34, 34, 35, 36, 37, 38, 38, 39, 40, 41, 42, 
+    42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 
+    58, 59, 60, 61, 62, 63, 64, 65, 66, 68, 69, 70, 71, 72, 73, 75, 
+    76, 77, 78, 80, 81, 82, 84, 85, 86, 88, 89, 90, 92, 93, 94, 96, 
+    97, 99, 100, 102, 103, 105, 106, 108, 109, 111, 112, 114, 115, 117, 119, 120, 
+    122, 124, 125, 127, 129, 130, 132, 134, 136, 137, 139, 141, 143, 145, 146, 148, 
+    150, 152, 154, 156, 158, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 
+    182, 184, 186, 188, 191, 193, 195, 197, 199, 202, 204, 206, 209, 211, 213, 215, 
+    218, 220, 223, 225, 227, 230, 232, 235, 237, 240, 242, 245, 247, 250, 252, 255
+};
+// Gamma 2.6, correzione colore: 0.66
+const PROGMEM uint8_t igamma_g[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 
+    2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 
+    5, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7, 8, 8, 
+    8, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 
+    13, 14, 14, 14, 15, 15, 16, 16, 16, 17, 17, 18, 18, 18, 19, 19, 
+    20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27, 
+    28, 29, 29, 30, 30, 31, 32, 32, 33, 33, 34, 35, 35, 36, 37, 37, 
+    38, 39, 39, 40, 41, 42, 42, 43, 44, 45, 45, 46, 47, 48, 48, 49, 
+    50, 51, 52, 53, 53, 54, 55, 56, 57, 58, 59, 60, 60, 61, 62, 63, 
+    64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+    80, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 97, 98, 
+    99, 100, 102, 103, 104, 105, 107, 108, 109, 111, 112, 113, 115, 116, 117, 119, 
+    120, 122, 123, 124, 126, 127, 129, 130, 132, 133, 135, 136, 138, 139, 141, 142, 
+    144, 145, 147, 148, 150, 152, 153, 155, 157, 158, 160, 162, 163, 165, 167, 168
+};
+// Gamma 2.6, correzione colore: 0.274
+const PROGMEM uint8_t igamma_b[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 
+    2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 
+    3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 
+    6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 
+    8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 11, 11, 11, 
+    12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 16, 
+    16, 16, 16, 17, 17, 17, 18, 18, 18, 19, 19, 19, 19, 20, 20, 20, 
+    21, 21, 21, 22, 22, 23, 23, 23, 24, 24, 24, 25, 25, 25, 26, 26, 
+    27, 27, 27, 28, 28, 29, 29, 29, 30, 30, 31, 31, 32, 32, 33, 33, 
+    33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40, 41, 
+    41, 42, 42, 43, 43, 44, 44, 45, 45, 46, 46, 47, 48, 48, 49, 49, 
+    50, 50, 51, 52, 52, 53, 53, 54, 55, 55, 56, 57, 57, 58, 58, 59, 
+    60, 60, 61, 62, 62, 63, 64, 64, 65, 66, 66, 67, 68, 68, 69, 70
+};
+
