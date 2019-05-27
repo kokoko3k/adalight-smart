@@ -4,6 +4,8 @@
  * averaged window based temporal smoothing and scene change detection.
  * It works till 50fps while driving 33 leds loosing 5 frames in 10 seconds
 */
+#pragma GCC optimize ("-O3")
+#pragma GCC push_options
 
 #include "FastLED.h"
 
@@ -532,5 +534,20 @@ void loop() {
 		//Serial.println(leds[0].r);
 	Serial.print(F("tot ")) ; Serial.println(millis()-tstart);
 
+	/*unsigned long t0;
+	uint32_t o;
+	loopme:
+	t0=millis();
+	for (uint16_t i = 0; i < 100; i++) {
+		//o= div10_32(random(0,10000))*2;
+		make_averaged_leds(foldleds,fleds);
+	}
+	
+	Serial.println(millis()-t0);
+	Serial.println(o);
+	o=(((uint32_t)25500 * (uint32_t)0xCCCD) >> 16) >> 2;
+	Serial.println(o);
+	Serial.println("");
+	goto loopme;*/
 }
 
