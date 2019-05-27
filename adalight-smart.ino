@@ -2,7 +2,7 @@
 /* My adalight script for arduino nano.
  * It does color correction, step based temporal smoothing,
  * averaged window based temporal smoothing and scene change detection.
- * It works till 45fps while driving 33 leds without loosing frames.
+ * It works till 50fps while driving 33 leds loosing 5 frames in 10 seconds
 */
 
 #include "FastLED.h"
@@ -36,30 +36,34 @@ FCRGB windowed_leds[NUM_LEDS][window];
 /* Configuration */
 
 	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
-	int min_steps = 0;			//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
+	int min_steps = 1;			//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
 								//However, setting this to something higher than 1, makes the fades never complete.
 	
 	int max_steps = 255;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
 	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+											//Disable to gain speed.
 	
 	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
 									 * where 70,170,255 are r,g,b   color corrected maximum values 
 									   (they are the last value from the gamma ramps). */
 
-	bool scene_change_detection = false;	//Activates the scene change detection that produces fastest fades on scene change.
+	bool scene_change_detection = true;	//Activates the scene change detection that produces fastest fades on scene change.
 	float threshold_scene_change = max_scene_sum / 10;	// If the scene changes enough do a fast fade,
-	uint16_t steps_to_change_scene = 6;					/* use # steps to fade from a scene to another
+	uint16_t steps_to_change_scene = 6 ;				/* use # steps to fade from a scene to another
 														 * note that in addition to that, there are
 														 * window averaged frames (5 actually) */
 
-	#define fastled_dither_threshold 0				 						// Use FastLED dithering when maximum brightness 
+														 
+	bool disable_fastled_dither = true; 				//Disable fastled dithering bypassing some checks, gaining some speed.
+	
+	#define fastled_dither_threshold 256*fixmathscale 					// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
 																			// note that it seems to have higher resolution that
 																			// my implementation, but it seems to flicker more too when fps is under 50.
-																			// and unfortunately, till now, this sketch cannot sustain 50fps with 33leds. (yet?)
+																			// and unfortunately, till now, this sketch can barely sustain 50fps with 33leds.
 																			// Use: 256*fixmathscale to force FastLED dithering everytime.
-																			// Use: 0 to completely disable it.
+
 
 /* Configuration ends here */
  
@@ -72,7 +76,7 @@ uint16_t iSteps;
 uint16_t steps_left_to_change_scene;
 unsigned long current_scene_sum = 0;
 unsigned long old_scene_sum = 0;
-float fixmathscale_inv = 1.00/fixmathscale;
+
 const PROGMEM uint8_t dither_20[] = { 0,0,0,0 };
 const PROGMEM uint8_t dither_40[] = { 0,0,0,1 };
 const PROGMEM uint8_t dither_60[] = { 0,1,0,1 };
@@ -260,6 +264,26 @@ void serial_wait_frame_from_hyperion() {
 	}
 }
 
+void apply_floor(CRGB pleds[],uint8_t myfloor){
+	int myfloor_new;
+	uint8_t mymax,r,g,b;
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		/*Enforce a minimum value for the components.
+		* That minimum value becomes lower as the maximum component value
+		* becomes higher.
+		* That way, pure blacks becomes "pure floor", but we don't loose saturation
+		* at brighter colors.
+		*/
+		mymax=max3(pleds[i].r,pleds[i].g,pleds[i].b);
+		myfloor_new = myfloor - (mymax - myfloor) ;
+		if (myfloor_new < 0) myfloor_new = 0;
+		if (myfloor_new > myfloor) myfloor_new = myfloor;
+		if (pleds[i].r < myfloor) {pleds[i].r = myfloor_new;}
+		if (pleds[i].g < myfloor) {pleds[i].g = myfloor_new;}
+		if (pleds[i].b < myfloor) {pleds[i].b = myfloor_new;}
+	}
+}
+
 void read_leds_from_hyperion(CRGB pleds[]) {
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		while(!Serial.available()); pleds[i].r = Serial.read();
@@ -285,8 +309,10 @@ unsigned long scene_sum(FCRGB pfleds[]){
 }
 
 uint16_t max3(uint16_t a, uint16_t b, uint16_t c) {
-	if ( a > b ) {
-		if ( a > c ) { return a ;}
+	if ( a >=b ) {
+		if ( a >= c ) { 
+			return a ;
+		}
 	}
 	if ( b > a ) {
 		if (b > c ) { return b; }
@@ -298,7 +324,7 @@ uint16_t fsmooth_value_step(uint16_t fStart, uint16_t fEnd, uint8_t ipSteps ){
 	int fdiff = fStart - fEnd;
 	uint16_t abs_diff = abs(fdiff);
 	uint16_t fstep = abs_diff/ipSteps; 
-	if ( abs_diff <= fstep ) { return fEnd ;}
+	if ( abs_diff < fstep ) { return fEnd ;}
 	
 	if (fStart > fEnd) {
 			return ( fStart - fstep );
@@ -309,8 +335,8 @@ uint16_t fsmooth_value_step(uint16_t fStart, uint16_t fEnd, uint8_t ipSteps ){
 
 uint16_t new_iSteps(FCRGB src, FCRGB dest) {
 	uint16_t out;
-	/* Given 2 colors, returns the step number to be used to fade.
-	 * The step number is the maximum difference found betweeb 2 components.
+	/* Given a source and a destination color, returns the step number to be used to fade.
+	 * The step number is the maximum difference found between 2 components.
 	 */
 	if (max_steps == min_steps) {return max_steps;}
 	
@@ -393,9 +419,7 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 
 void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
 	static uint8_t k;
-	unsigned long sum_r = 0;
-	unsigned long sum_g = 0;
-	unsigned long sum_b = 0;
+	unsigned long sum_r,sum_g,sum_b ;
 	float window_inv = 1.00/window;
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		windowed_leds[i][k].r = new_readings[i].r;
@@ -429,8 +453,24 @@ void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
 	if ( k > ( window-1 ) ) { k = 0;}
 }
 
+void show_step_dithering() {
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		leds[i].r = (fleds[i].r) / fixmathscale ;
+		leds[i].g = (fleds[i].g) / fixmathscale ;
+		leds[i].b = (fleds[i].b) / fixmathscale ;
+	}
+
+	FastLED.setBrightness(255);
+
+	make_dithered_leds(fleds,leds,0); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
+}
+
 void loop() {
-	tstart=millis();
+
+	tstart=millis();	
 	serial_wait_frame_from_hyperion();
 	read_leds_from_hyperion(leds);
 
@@ -455,21 +495,27 @@ void loop() {
 	if (use_window_average) { make_averaged_leds(foldleds,fleds);} //1.65 ms
 	
 	//Show time
+	
+	//If forced, use step dithering and skip the decision between it and fastled dithering
+	if ( disable_fastled_dither == true ) {
+		show_step_dithering();
+		goto past_show;
+	}
+
 	Maximum_found=find_maximum(fleds) ;
 
-    if (Maximum_found < (2*fixmathscale)) {Maximum_found = (2*fixmathscale);}	//	<-- imposta il setbrightness minimo, è necessario che sia maggiore di 1, 
+	if (Maximum_found < (2*fixmathscale)) {Maximum_found = (2*fixmathscale);}	//	<-- imposta il setbrightness minimo, è necessario che sia maggiore di 1, 
 																				//  <-- affinchè il dithering funzioni, da vedere come si comporta con valori maggiori tipo 10, 20..
-
 	if (Maximum_found < fastled_dither_threshold) {
-																						
+
 		newBrightness = (float)Maximum_found/fixmathscale;
 		fNfactor = (255 / newBrightness); //fNfactor is in range 0..25500
 		//normalize the strip
 
 		for (uint8_t i = 0; i < NUM_LEDS; i++) {
-			leds[i].r = (fleds[i].r * fNfactor) * fixmathscale_inv ;
-			leds[i].g = (fleds[i].g * fNfactor) * fixmathscale_inv ;
-			leds[i].b = (fleds[i].b * fNfactor) * fixmathscale_inv ;
+			leds[i].r = (fleds[i].r * fNfactor) / fixmathscale ;
+			leds[i].g = (fleds[i].g * fNfactor) / fixmathscale ;
+			leds[i].b = (fleds[i].b * fNfactor) / fixmathscale ;
 		}
 
 		FastLED.setBrightness(newBrightness);
@@ -479,23 +525,12 @@ void loop() {
 		FastLED.show() ;
 		
 			} else {
-
-		for (uint8_t i = 0; i < NUM_LEDS; i++) {
-			leds[i].r = (fleds[i].r) * fixmathscale_inv ;
-			leds[i].g = (fleds[i].g) * fixmathscale_inv ;
-			leds[i].b = (fleds[i].b) * fixmathscale_inv ;
-		}
-
-		FastLED.setBrightness(255);
-
-		make_dithered_leds(fleds,leds,0); 	FastLED.show() ;
-		make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
-		make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
-		make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
+		show_step_dithering();
 	}
-		//Serial.println(leds[0].r);
-	Serial.print(F("totale: ")) ; Serial.println(millis()-tstart);
 
+	past_show:
+		//Serial.println(leds[0].r);
+	Serial.print(F("tot ")) ; Serial.println(millis()-tstart);
 
 }
 
