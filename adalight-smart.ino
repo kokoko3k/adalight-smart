@@ -218,8 +218,21 @@ void setup() {
 	Serial.print(F("Ada\n"));
 }
 
+uint32_t divu5(uint32_t n) { 
+	//http://www.hackersdelight.org/divcMore.pdf
+	uint32_t q, r;
+	q = (n >> 1) + (n >> 2);
+	q = q + (q >> 4);
+	q = q + (q >> 8);
+	q = q + (q >> 16);
+	q = q >> 2;
+	r = n - q*5;
+	return q + (r>4) + (r>9);
+}
+
 
 uint32_t div10_32(uint32_t in) {
+	//http://www.hackersdelight.org/divcMore.pdf
 	// q = in * 0.8;
 	uint32_t q = (in >> 1) + (in >> 2);
 	q = q + (q >> 4);
@@ -438,17 +451,9 @@ void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
 			sum_b = sum_b + windowed_leds[i][w].b;			
 		}
 
-		/*averaged[i].r = sum_r/window; //<-- division is heavy!, takes 1ms for 30 itrerations!
-		averaged[i].g = sum_g/window;
-		averaged[i].b = sum_b/window;*/
-		//OR:
-		/*averaged[i].r = sum_r * window_inv;  //multiply for 1/5 is actually faster in float, WTH!
-		averaged[i].g = sum_g * window_inv; 
-		averaged[i].b = sum_b * window_inv;*/
-		//OR:
-		averaged[i].r = div10_32(sum_r) * 2;  // divide by 10 and mul by 2 
-		averaged[i].g = div10_32(sum_g) * 2;  // instead of divide by 5 (the window average size) 
-		averaged[i].b = div10_32(sum_b) * 2;
+		averaged[i].r = divu5(sum_r) ;  
+		averaged[i].g = divu5(sum_g) ; 
+		averaged[i].b = divu5(sum_b) ;
 	}
 
 	k = k + 1 ; //Move the index where next value will go
@@ -544,9 +549,8 @@ void loop() {
 	}
 	
 	Serial.println(millis()-t0);
-	Serial.println(o);
 	o=(((uint32_t)25500 * (uint32_t)0xCCCD) >> 16) >> 2;
-	Serial.println(o);
+	//Serial.println( divu5a(1073741824) );
 	Serial.println("");
 	goto loopme;*/
 }
