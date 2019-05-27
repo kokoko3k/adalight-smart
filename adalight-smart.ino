@@ -2,7 +2,7 @@
 /* My adalight script for arduino nano.
  * It does color correction, step based temporal smoothing,
  * averaged window based temporal smoothing and scene change detection.
- * It works till 50fps while driving 33 leds loosing 5 frames in 10 seconds
+ * It works at least at 50fps while driving 33 leds.
 */
 #pragma GCC optimize ("-O3")
 #pragma GCC push_options
@@ -57,13 +57,13 @@ FCRGB windowed_leds[NUM_LEDS][window];
 														 * window averaged frames (5 actually) */
 
 														 
-	bool disable_fastled_dither = true; 				//Disable fastled dithering bypassing some checks, gaining some speed.
+	bool disable_fastled_dither = false; 				//Disable fastled dithering bypassing some checks, gaining some speed.
 	
 	#define fastled_dither_threshold 256*fixmathscale 					// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
 																			// note that it seems to have higher resolution that
 																			// my implementation, but it seems to flicker more too when fps is under 50.
-																			// and unfortunately, till now, this sketch can barely sustain 50fps with 33leds.
+																			// and fortunately, till now, this sketch can sustain 50fps with 33leds.
 																			// Use: 256*fixmathscale to force FastLED dithering everytime.
 
 
