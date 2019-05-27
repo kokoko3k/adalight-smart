@@ -230,6 +230,21 @@ uint32_t divu5(uint32_t n) {
 	return q + (r>4) + (r>9);
 }
 
+uint32_t div10_16(uint32_t in) {
+	//http://www.hackersdelight.org/divcMore.pdf
+	// q = in * 0.8;
+	uint32_t q = (in >> 1) + (in >> 2);
+	q = q + (q >> 4);
+	q = q + (q >> 8);
+	//q = q + (q >> 16);  // not needed for 16 bit version
+
+	// q = q / 8;  ==> q =  in *0.1;
+	q = q >> 3;
+
+	// determine error
+	uint32_t  r = in - ((q << 3) + (q << 1));   // r = in - q*10;
+	return  q + (r > 9);
+}
 
 uint32_t div10_32(uint32_t in) {
 	//http://www.hackersdelight.org/divcMore.pdf
@@ -399,7 +414,7 @@ uint16_t find_maximum( FCRGB pleds[] ) {
 }
 
 uint16_t mymodulo100(uint16_t value) {
-	//Faster version than "%"
+	//Faster version than "%" 
 	if (value > 20000) { value = value - 20000 ; }  
 	if (value > 10000) { value = value - 10000;} 
 	if (value > 5000) { value = value - 5000 ;}  
@@ -411,6 +426,7 @@ uint16_t mymodulo100(uint16_t value) {
 	if (value > 100) { value = value - 100 ;} 
 	return value;
 }
+
 
 uint8_t dithered(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
@@ -545,12 +561,15 @@ void loop() {
 	t0=millis();
 	for (uint16_t i = 0; i < 100; i++) {
 		//o= div10_32(random(0,10000))*2;
-		make_averaged_leds(foldleds,fleds);
+		make_dithered_leds(fleds,leds,0);
+		make_dithered_leds(fleds,leds,1);
+		make_dithered_leds(fleds,leds,2);
+		make_dithered_leds(fleds,leds,3);
 	}
 	
 	Serial.println(millis()-t0);
 	o=(((uint32_t)25500 * (uint32_t)0xCCCD) >> 16) >> 2;
-	//Serial.println( divu5a(1073741824) );
+	//Serial.println( divu5(1073741824) );
 	Serial.println("");
 	goto loopme;*/
 }
