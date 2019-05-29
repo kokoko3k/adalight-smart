@@ -84,7 +84,10 @@ const PROGMEM uint8_t dither_25[] = { 0,0,0,1 }; // 25% 14..37
 const PROGMEM uint8_t dither_50[] = { 0,1,0,1 }; // 50% 38..63
 const PROGMEM uint8_t dither_75[] = { 0,1,1,1 }; // 75% 64..87
 
-
+//const PROGMEM uint8_t dither6_0[] = { 0,0,0,0,0,0 }; //0%   00..16
+const PROGMEM uint8_t dither6_33[] = { 0,1,0,0,1,0 }; //33%  17..40
+const PROGMEM uint8_t dither6_50[] = { 0,1,0,1,0,1 }; //50%  41..58
+const PROGMEM uint8_t dither6_66[] = { 1,0,1,1,0,1 }; //66%  59..83
 
 
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 1, correzione colore completamente attiva in: 1 passi 
@@ -431,13 +434,23 @@ uint16_t mymodulo100(uint16_t value) {
 }
 
 
-uint8_t dithered(uint16_t in_value, byte step){
+/*uint8_t dithered_4bit(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
 	byte integer = (in_value - fractional) / fixmathscale ;			
 	if ( fractional <= 13)	{ return integer  ; }
 	if ( fractional <= 37)	{ return integer + pgm_read_byte_near(dither_25 + step); }
 	if ( fractional <= 63)	{ return integer + pgm_read_byte_near(dither_50 + step); }
 	if ( fractional <= 87)	{ return integer + pgm_read_byte_near(dither_75 + step); }
+							  return integer + 1;
+}*/
+
+uint8_t dithered(uint16_t in_value, byte step){
+	byte fractional = mymodulo100(in_value);
+	byte integer = (in_value - fractional) / fixmathscale ;			
+	if ( fractional <= 16)	{ return integer  ; }
+	if ( fractional <= 40)	{ return integer + pgm_read_byte_near(dither6_33 + step); }
+	if ( fractional <= 58)	{ return integer + pgm_read_byte_near(dither6_50 + step); }
+	if ( fractional <= 83)	{ return integer + pgm_read_byte_near(dither6_66 + step); }
 							  return integer + 1;
 }
 
@@ -447,7 +460,7 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 		dithered_leds[i].g = dithered(source_fleds[i].g,step);
 		dithered_leds[i].b = dithered(source_fleds[i].b,step);
 	}
-	Serial.println(dithered_leds[i].r);
+	//Serial.println(dithered_leds[i].r);
 }
 
 void show_step_dithering() {
@@ -465,6 +478,8 @@ void show_step_dithering() {
 	make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
 	make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
 	make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,4); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,5); 	FastLED.show() ;
 }
 
 void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
@@ -498,10 +513,10 @@ void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
 
 
 void loop() {
-
+	tstart=millis();	
 	serial_wait_frame_from_hyperion();
 	read_leds_from_hyperion(leds);
-	tstart=millis();	
+
 	color_correct(leds,fleds); 
 
 	if (scene_change_detection) {
