@@ -79,10 +79,13 @@ uint16_t steps_left_to_change_scene;
 unsigned long current_scene_sum = 0;
 unsigned long old_scene_sum = 0;
 
-const PROGMEM uint8_t dither_20[] = { 0,0,0,0 };
-const PROGMEM uint8_t dither_40[] = { 0,0,0,1 };
-const PROGMEM uint8_t dither_60[] = { 0,1,0,1 };
-const PROGMEM uint8_t dither_80[] = { 0,1,1,1 };
+//const PROGMEM uint8_t dither_00[] = { 0,0,0,0 }; // 0%  00..13 
+const PROGMEM uint8_t dither_25[] = { 0,0,0,1 }; // 25% 14..37
+const PROGMEM uint8_t dither_50[] = { 0,1,0,1 }; // 50% 38..63
+const PROGMEM uint8_t dither_75[] = { 0,1,1,1 }; // 75% 64..87
+
+
+
 
 // Gamma inizio: 2.6, gamma fine: 2.6, correzione colore: 1, correzione colore completamente attiva in: 1 passi 
 const PROGMEM uint16_t gamma_r[] = {
@@ -431,10 +434,10 @@ uint16_t mymodulo100(uint16_t value) {
 uint8_t dithered(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
 	byte integer = (in_value - fractional) / fixmathscale ;			
-	if ( fractional <= 20)	{ return integer  ; }
-	if ( fractional <= 40)	{ return integer + pgm_read_byte_near(dither_40 + step); }
-	if ( fractional <= 60)	{ return integer + pgm_read_byte_near(dither_60 + step); }
-	if ( fractional <= 80)	{ return integer + pgm_read_byte_near(dither_80 + step); }
+	if ( fractional <= 13)	{ return integer  ; }
+	if ( fractional <= 37)	{ return integer + pgm_read_byte_near(dither_25 + step); }
+	if ( fractional <= 63)	{ return integer + pgm_read_byte_near(dither_50 + step); }
+	if ( fractional <= 87)	{ return integer + pgm_read_byte_near(dither_75 + step); }
 							  return integer + 1;
 }
 
@@ -444,6 +447,7 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 		dithered_leds[i].g = dithered(source_fleds[i].g,step);
 		dithered_leds[i].b = dithered(source_fleds[i].b,step);
 	}
+	Serial.println(dithered_leds[i].r);
 }
 
 void show_step_dithering() {
