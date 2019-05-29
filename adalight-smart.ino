@@ -10,7 +10,7 @@
 #include "FastLED.h"
 
 #define NUM_LEDS 33
-#define DATA_PIN 3
+#define DATA_PIN 11
 #define CLOCK_PIN 13
 #define COLOR_ORDER BRG // RGB //GRB
 uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
@@ -37,13 +37,13 @@ FCRGB windowed_leds[NUM_LEDS][window];
 
 /* Configuration */
 
-	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
+	bool use_step_smoothing = false ;		//Smooth led fades by stepping through intermediate values
 	int min_steps = 1;			//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
 								//However, setting this to something higher than 1, makes the fades never complete.
 	
 	int max_steps = 255;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
-	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+	bool use_window_average = false ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
 											//Disable to gain speed.
 	
 	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
@@ -57,7 +57,7 @@ FCRGB windowed_leds[NUM_LEDS][window];
 														 * window averaged frames (5 actually) */
 
 														 
-	bool disable_fastled_dither = false; 				//Disable fastled dithering bypassing some checks, gaining some speed.
+	bool disable_fastled_dither = true; 				//Disable fastled dithering bypassing some checks, gaining some speed.
 	
 	#define fastled_dither_threshold 256*fixmathscale 					// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
@@ -431,7 +431,6 @@ uint16_t mymodulo100(uint16_t value) {
 uint8_t dithered(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
 	byte integer = (in_value - fractional) / fixmathscale ;			
-
 	if ( fractional <= 20)	{ return integer  ; }
 	if ( fractional <= 40)	{ return integer + pgm_read_byte_near(dither_40 + step); }
 	if ( fractional <= 60)	{ return integer + pgm_read_byte_near(dither_60 + step); }
@@ -445,7 +444,23 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 		dithered_leds[i].g = dithered(source_fleds[i].g,step);
 		dithered_leds[i].b = dithered(source_fleds[i].b,step);
 	}
-																							
+}
+
+void show_step_dithering() {
+	/* Useless?
+	for (uint8_t i = 0; i < NUM_LEDS; i++) {
+		leds[i].r = (fleds[i].r) / fixmathscale ;
+		leds[i].g = (fleds[i].g) / fixmathscale ;
+		leds[i].b = (fleds[i].b) / fixmathscale ;
+	}
+	*/
+
+	FastLED.setBrightness(255);
+
+	make_dithered_leds(fleds,leds,0); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
+	make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
 }
 
 void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
@@ -476,29 +491,15 @@ void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
 	if ( k > ( window-1 ) ) { k = 0;}
 }
 
-void show_step_dithering() {
-	for (uint8_t i = 0; i < NUM_LEDS; i++) {
-		leds[i].r = (fleds[i].r) / fixmathscale ;
-		leds[i].g = (fleds[i].g) / fixmathscale ;
-		leds[i].b = (fleds[i].b) / fixmathscale ;
-	}
 
-	FastLED.setBrightness(255);
-
-	make_dithered_leds(fleds,leds,0); 	FastLED.show() ;
-	make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
-	make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
-	make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
-}
 
 void loop() {
 
-	tstart=millis();	
 	serial_wait_frame_from_hyperion();
 	read_leds_from_hyperion(leds);
-
+	tstart=millis();	
 	color_correct(leds,fleds); 
-	
+
 	if (scene_change_detection) {
 		current_scene_sum = scene_sum(fleds);
 		new_scene = detect_scene_change(current_scene_sum,old_scene_sum);
@@ -552,7 +553,7 @@ void loop() {
 	}
 
 	past_show:
-		//Serial.println(leds[0].r);
+	//Serial.println(leds[0].r);
 	Serial.print(F("tot ")) ; Serial.println(millis()-tstart);
 
 	/*unsigned long t0;
@@ -561,10 +562,7 @@ void loop() {
 	t0=millis();
 	for (uint16_t i = 0; i < 100; i++) {
 		//o= div10_32(random(0,10000))*2;
-		make_dithered_leds(fleds,leds,0);
-		make_dithered_leds(fleds,leds,1);
-		make_dithered_leds(fleds,leds,2);
-		make_dithered_leds(fleds,leds,3);
+		FastLED.show();
 	}
 	
 	Serial.println(millis()-t0);
