@@ -37,13 +37,13 @@ FCRGB windowed_leds[NUM_LEDS][window];
 
 /* Configuration */
 
-	bool use_step_smoothing = false ;		//Smooth led fades by stepping through intermediate values
+	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
 	int min_steps = 1;			//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
 								//However, setting this to something higher than 1, makes the fades never complete.
 	
 	int max_steps = 255;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
-	bool use_window_average = false ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
 											//Disable to gain speed.
 	
 	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
