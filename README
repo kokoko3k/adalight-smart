@@ -18,7 +18,7 @@ This sketch performs:
 	  gamma correction tables stored in PROGMEM
 	* (switch) Scene change detection
 	* (switch) slow fades between frames in the same scene
-      (step smoothing and/or windowed average)
+	  (step smoothing and/or windowed average)
 	* (switch) fast fades between frames when the scene changes
 	* 4bit dithering to overcome WS2812 limitations when apply gamma correction
 	* (switch) FastLED dithering on low brightness scene
