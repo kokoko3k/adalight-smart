@@ -14,9 +14,10 @@
 #define CLOCK_PIN 13
 #define COLOR_ORDER BRG // RGB //GRB
 uint8_t prefix[] = {'A', 'd', 'a'}, hi, lo, chk, i;
+uint8_t prefix_cfg[] = {'A', 'd', 'c'};	// Magic word for sketch realtime configuration
+										// (note that using the same 2 letters as the prefix is intended and needed
 #define serialRate 500000
 #define dither_steps 4
-
 #define fixmathscale 100  //please don't change it due to some hardcoded things ( eg: mymodulo100())
 #define window 5 // Define the smoothing window size
 
@@ -45,7 +46,7 @@ FCRGB windowed_leds[NUM_LEDS][window];
 
 	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
 											//Disable to gain speed.
-	
+
 	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
 									 * where 70,170,255 are r,g,b   color corrected maximum values 
 									   (they are the last value from the gamma ramps). */
@@ -56,12 +57,11 @@ FCRGB windowed_leds[NUM_LEDS][window];
 														 * note that in addition to that, there are
 														 * window averaged frames (5 actually) */
 
-														 
 	bool disable_fastled_dither = true; 				//Disable fastled dithering bypassing some checks, gaining some speed.
-	
+
 	#define fastled_dither_threshold 256*fixmathscale 					// Use FastLED dithering when maximum brightness 
 																			// is under that threshold.
-																			// note that it seems to have higher resolution that
+																			// note that it seems to have higher resolution than
 																			// my implementation, but it seems to flicker more too when fps is under 50.
 																			// and fortunately, till now, this sketch can sustain 50fps with 33leds.
 																			// Use: 256*fixmathscale to force FastLED dithering everytime.
@@ -69,6 +69,30 @@ FCRGB windowed_leds[NUM_LEDS][window];
 
 /* Configuration ends here */
  
+	/* CONFIGURATION CODES (output the code to the serial to enable/disable functionalities):
+	 * Visual feedback is given to the Serial (tail -f /dev/ttyUSB0)
+	 * Example in bash:
+	 * code=B ; timeout 2 sh -c "while true ; do echo -n Adc$code > /dev/ttyUSB0 ; sleep 0.05 ; done"
+	 * 
+			code	(decimal)	step_smoothing window_average_smoothing scene_detection fastled_dither
+			Adc0	0            0              0                        0               0
+			Adc1	1            0              0                        0               1
+			Adc2	2            0              0                        1               0
+			Adc3	3            0              0                        1               1
+			Adc4	4            0              1                        0               0
+			Adc5	5            0              1                        0               1
+			Adc6	6            0              1                        1               0
+			Adc7	7            0              1                        1               1
+			Adc8	8            1              0                        0               0
+			Adc9	9            1              0                        0               1
+			AdcA	10           1              0                        1               0
+			AdcB	11           1              0                        1               1
+			AdcC	12           1              1                        0               0
+			AdcD	13           1              1                        0               1
+			AdcE	14           1              1                        1               0
+			AdcF	15           1              1                        1               1
+	*/
+
 
 unsigned long tstart ;
 uint16_t Maximum_found ; 
@@ -285,24 +309,59 @@ bool detect_scene_change(float current_scene_sum, float old_scene_sum ) {
 }
 
 void serial_wait_frame_from_hyperion() {
+	uint8_t sData;
 	for(i = 0; i < sizeof prefix; ++i) {				// wait for first byte of Magic Word
-		waitLoop: while (!Serial.available()) ;;
-		if(prefix[i] == Serial.read()) continue;		// Check next byte in Magic Word
-		i = 0;											// otherwise, start over
+		waitLoop: 
+			//Serial.print(F("Wait byte number:")); Serial.println(i);
+			while (!Serial.available()) ;;
+			sData =  Serial.read(); 
+			if( sData == prefix[i] ) continue;	// Check next byte in Magic Word
+			if( sData == prefix_cfg[i] ) continue;	// Check next byte in Configuration Magic Word
+			i = 0;								// otherwise, start over
 		goto waitLoop;
 	}
-	while (!Serial.available()) ;; hi = Serial.read();	// Hi, Lo, Checksum
-	while (!Serial.available()) ;; lo = Serial.read();
-	while (!Serial.available()) ;; chk = Serial.read();
-	if (chk != (hi ^ lo ^ 0x55)) {						// if checksum does not match go back to wait
-		i=0;
-		goto waitLoop;
+	//Now that we've the full magic word, check if it is from hyperion or for configuration.
+	if (sData == prefix[2] ) {
+		while (!Serial.available()) ;; hi = Serial.read();	// Hi, Lo, Checksum
+		while (!Serial.available()) ;; lo = Serial.read();
+		while (!Serial.available()) ;; chk = Serial.read();
+		if (chk != (hi ^ lo ^ 0x55)) {						// if checksum does not match go back to wait
+			i=0;
+			goto waitLoop;
+		}
+	} else {
+		Serial.println(F("Got Magic configuration word: Adc"));
+		//do realtime configuration, read next byte.
+		sData = Serial.read();
+		Serial.print(F("Got configuration byte: ")) ; Serial.println(sData);
+		configure_from_serial(sData);
 	}
 }
 
-void apply_floor(CRGB pleds[],uint8_t myfloor){
+void configure_from_serial(char c) {
+	uint8_t v;
+	if (c >= '0' && c <= '9') 
+		v = (byte)(c - '0') ;
+			else
+		v = (byte)(c-'A'+10) ; 
+	
+	Serial.print(F("Converted hex to byte value, value=")); Serial.println(v);
+	
+	disable_fastled_dither = (bitRead(v,0) == 0) ; 
+	scene_change_detection = (bitRead(v,1) == 1) ; 
+	use_window_average = (bitRead(v,2) == 1) ; 
+	use_step_smoothing = (bitRead(v,3) == 1) ; 
+
+	Serial.println(F("Active features:"));
+	if ( ! disable_fastled_dither ) Serial.println(F(" [v] FastLED dither"));
+	if ( scene_change_detection )   Serial.println(F(" [v] scene_change_detection"));
+	if ( use_window_average )       Serial.println(F(" [v] use_window_average"));
+	if ( use_step_smoothing )       Serial.println(F(" [v] use_step_smoothing"));
+}
+
+void apply_floor(FCRGB pleds[],uint16_t myfloor){
 	int myfloor_new;
-	uint8_t mymax,r,g,b;
+	uint16_t mymax,r,g,b;
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		/*Enforce a minimum value for the components.
 		* That minimum value becomes lower as the maximum component value
@@ -434,7 +493,7 @@ uint16_t mymodulo100(uint16_t value) {
 }
 
 
-/*uint8_t dithered_4bit(uint16_t in_value, byte step){
+/*uint8_t dithered(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
 	byte integer = (in_value - fractional) / fixmathscale ;			
 	if ( fractional <= 13)	{ return integer  ; }
@@ -444,23 +503,37 @@ uint16_t mymodulo100(uint16_t value) {
 							  return integer + 1;
 }*/
 
+
 uint8_t dithered(uint16_t in_value, byte step){
 	byte fractional = mymodulo100(in_value);
 	byte integer = (in_value - fractional) / fixmathscale ;			
-	if ( fractional <= 16)	{ return integer  ; }
-	if ( fractional <= 40)	{ return integer + pgm_read_byte_near(dither6_33 + step); }
-	if ( fractional <= 58)	{ return integer + pgm_read_byte_near(dither6_50 + step); }
-	if ( fractional <= 83)	{ return integer + pgm_read_byte_near(dither6_66 + step); }
+	if ( fractional < 13)	{ return integer  ; }
+	if ( fractional < 37)	{ return integer + pgm_read_byte_near(dither_25 + step); }
+	if ( fractional < 63)	{ return integer + pgm_read_byte_near(dither_50 + step); }
+	if ( fractional < 87)	{ return integer + pgm_read_byte_near(dither_75 + step); }
 							  return integer + 1;
 }
+
+
+/*uint8_t dithered_6bit(uint16_t in_value, byte step){
+	byte fractional = mymodulo100(in_value);
+	byte integer = (in_value - fractional) / fixmathscale ;			
+	if ( fractional < 16)	{ return integer  ; }
+	if ( fractional < 40)	{ return integer + pgm_read_byte_near(dither6_33 + step); }
+	if ( fractional < 58)	{ return integer + pgm_read_byte_near(dither6_50 + step); }
+	if ( fractional < 83)	{ return integer + pgm_read_byte_near(dither6_66 + step); }
+							  return integer + 1;
+}*/
 
 void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		dithered_leds[i].r = dithered(source_fleds[i].r,step);
 		dithered_leds[i].g = dithered(source_fleds[i].g,step);
 		dithered_leds[i].b = dithered(source_fleds[i].b,step);
+		//offset the step between adiacent pixels to mitigate flickering due to dithering.
+		//step = step + 1 ; 
+		//if ( step == dither_steps ) { step = 0 ;}
 	}
-	//Serial.println(dithered_leds[i].r);
 }
 
 void show_step_dithering() {
@@ -478,8 +551,6 @@ void show_step_dithering() {
 	make_dithered_leds(fleds,leds,1); 	FastLED.show() ;
 	make_dithered_leds(fleds,leds,2); 	FastLED.show() ;
 	make_dithered_leds(fleds,leds,3); 	FastLED.show() ;
-	make_dithered_leds(fleds,leds,4); 	FastLED.show() ;
-	make_dithered_leds(fleds,leds,5); 	FastLED.show() ;
 }
 
 void make_averaged_leds(FCRGB new_readings[],FCRGB averaged[]) {
@@ -519,6 +590,8 @@ void loop() {
 
 	color_correct(leds,fleds); 
 
+	//apply_floor(fleds,100);
+	
 	if (scene_change_detection) {
 		current_scene_sum = scene_sum(fleds);
 		new_scene = detect_scene_change(current_scene_sum,old_scene_sum);
