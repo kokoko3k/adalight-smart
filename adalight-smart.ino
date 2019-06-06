@@ -39,32 +39,35 @@ FCRGB windowed_leds[NUM_LEDS][window];
 /* Configuration */
 
 	bool use_step_smoothing = true ;		//Smooth led fades by stepping through intermediate values
+
 	int min_steps = 1;			//1-255: min frames to fade from a color to another when not changing scene (not including window averaged frames)
 								//However, setting this to something higher than 1, makes the fades never complete.
 	
 	int max_steps = 255;		//1-255: max frames to fade from a color to another when not changing scene (not including window averaged frames)
 
-	bool use_window_average = true ;		//Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
-											//Disable to gain speed.
+	bool use_window_average = true ;		/* Apart from step based smoothing, this one activates a small averaged window; helps with flickering.
+											 * Disable to gain speed. */
 
 	float max_scene_sum = 1630200 ;	/* in my case: (70+170+255-1) * NUM_LEDS * fixmathscale 
 									 * where 70,170,255 are r,g,b   color corrected maximum values 
-									   (they are the last value from the gamma ramps). */
+									 * (they are the last value from the gamma ramps). */
 
 	bool scene_change_detection = true;	//Activates the scene change detection that produces fastest fades on scene change.
+
 	float threshold_scene_change = max_scene_sum / 10;	// If the scene changes enough do a fast fade,
+
 	uint16_t steps_to_change_scene = 6 ;				/* use # steps to fade from a scene to another
 														 * note that in addition to that, there are
 														 * window averaged frames (5 actually) */
 
 	bool disable_fastled_dither = true; 				//Disable fastled dithering bypassing some checks, gaining some speed.
 
-	#define fastled_dither_threshold 256*fixmathscale 					// Use FastLED dithering when maximum brightness 
-																			// is under that threshold.
-																			// note that it seems to have higher resolution than
-																			// my implementation, but it seems to flicker more too when fps is under 50.
-																			// and fortunately, till now, this sketch can sustain 50fps with 33leds.
-																			// Use: 256*fixmathscale to force FastLED dithering everytime.
+	#define fastled_dither_threshold 256*fixmathscale 						/* Use FastLED dithering when maximum brightness 
+																			 * is under that threshold.
+																			 * note that it seems to have higher resolution than
+																			 * my implementation, but it seems to flicker more too when fps is under 50.
+																			 * and fortunately, till now, this sketch can sustain 50fps with 33leds.
+																			 * Use: 256*fixmathscale to force FastLED dithering everytime. */
 
 
 /* Configuration ends here */
@@ -72,6 +75,7 @@ FCRGB windowed_leds[NUM_LEDS][window];
 	/* CONFIGURATION CODES (output the code to the serial to enable/disable functionalities):
 	 * Visual feedback is given to the Serial (tail -f /dev/ttyUSB0)
 	 * Example in bash:
+	 * ( !! stop hyperiond before sending the string !! )
 	 * code=B ; timeout 2 sh -c "while true ; do echo -n Adc$code > /dev/ttyUSB0 ; sleep 0.05 ; done"
 	 * 
 			code	(decimal)	step_smoothing window_average_smoothing scene_detection fastled_dither
@@ -647,20 +651,5 @@ void loop() {
 	past_show:
 	//Serial.println(leds[0].r);
 	Serial.print(F("tot ")) ; Serial.println(millis()-tstart);
-
-	/*unsigned long t0;
-	uint32_t o;
-	loopme:
-	t0=millis();
-	for (uint16_t i = 0; i < 100; i++) {
-		//o= div10_32(random(0,10000))*2;
-		FastLED.show();
-	}
-	
-	Serial.println(millis()-t0);
-	o=(((uint32_t)25500 * (uint32_t)0xCCCD) >> 16) >> 2;
-	//Serial.println( divu5(1073741824) );
-	Serial.println("");
-	goto loopme;*/
 }
 
