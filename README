@@ -16,42 +16,22 @@ Hyperion needs to be set with:
 This sketch performs:
 	* Gamma and color correction by using prebuilt
 	  gamma correction tables stored in PROGMEM
-	* Scene change detection
-	* slow fades between frames in the same scene
-	* fast fades between frames when the scene changes
+	* (switch) Scene change detection
+	* (switch) slow fades between frames in the same scene
+      (step smoothing and/or windowed average)
+	* (switch) fast fades between frames when the scene changes
 	* 4bit dithering to overcome WS2812 limitations when apply gamma correction
+	* (switch) FastLED dithering on low brightness scene
 	* Fixed point math for performance reasons
-
+	* Realtime configuration via serial comunication to arduino
 
 It works well, but at very low brightness it is still not 100% smooth.
 In paticular i noted a kind of flickering that probably happens
 when leds "ping-pong switches" off and on .
-Possible workarounds:
 
-a) Use different gamma tables that starts with color correction off
-   and a linear ramp and ends with full color correction and
-   proper destination gamma.  
-   ...this gives smooth fades, but obviously it is a trade versus bad
-   color fidelity when the color component value is low.
-   this not only influences the low brightness colors, but also colors
-   containing low value components (eg: FF03FF)
-
-b) Use a threshold so that no smoothing is done if there is not "enough"
-   change between colors.
-   This way flickering should be gone.
-   cons: conflicts with our implementation; it stops any slow fade we done
-         near his ends because it reaches the threshold.
- 
-c) FastLED library provides his own implementation of dithering that
-   works far better than mine. but it works on the global brightness
-   instead of the single led.
-   I could normalize the leds brightness and then lowering it again
-   by using fastLED dithering. This should give more color precision.
-   pros: great fidelity on dark scenes.
-   cons: nothing changes on bright scenes on colors like FF03FF.
-   cons: may conflict with current smoothing implementation
-         (note: not if we save our strip values before normalize it)
-
-?) Anything else?
-
-9) A mix of the previous!
+Possible workaround:
+	Push minimum brightness value to something > 0.
+	The following pushes an extra 10% of 'luminance' (-b "0.1 0.1 0.1")
+	and compensate the loss of saturation by pushing an extra 20% saturation (-s 1.2)
+	eg: hyperion-remote -b "0.1 0.1 0.1" -s 1.2
+	
