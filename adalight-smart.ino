@@ -244,7 +244,7 @@ void setup() {
 	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
 	delay(1000);
-	for(i = 200; i > 0; --i) {
+	for(i = 127;  i > 0; --i) {
 		LEDS.showColor(CRGB(i, i, i));
 		delay(5);
 	}
