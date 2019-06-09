@@ -243,11 +243,17 @@ void setup() {
 	FastLED.addLeds<WS2811, DATA_PIN, COLOR_ORDER>(leds,NUM_LEDS);
 	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
-	delay(500);
- 	LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
+	delay(1000);
+	for(i = 200; i > 0; --i) {
+		LEDS.showColor(CRGB(i, i, i));
+		delay(5);
+	}
+	LEDS.showColor(CRGB(0,0,0));
+	
+ 	/*LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
 	LEDS.showColor(CRGB(128, 0, 0))	;	delay(100);
 	LEDS.showColor(CRGB(0, 0, 0))	;delay(100);
-	LEDS.showColor(CRGB(0, 0, 0)) ;delay(100);
+	LEDS.showColor(CRGB(0, 0, 0)) ;delay(100);*/
 	Serial.begin(serialRate);
 	Serial.print(F("Ada\n"));
 }
@@ -451,6 +457,7 @@ uint16_t new_iSteps(FCRGB src, FCRGB dest) {
 }
 
 void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
+	Serial.println(F("Smoothing"));
 	bool changing_scene = (steps_left_to_change_scene > 0);
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		if (changing_scene) {
