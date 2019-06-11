@@ -244,11 +244,13 @@ void setup() {
 	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
 	delay(1000);
-	for(i = 127;  i > 0; --i) {
+	/*for(i = 127;  i > 0; --i) {
 		LEDS.showColor(CRGB(i, i, i));
 		delay(5);
 	}
-	LEDS.showColor(CRGB(0,0,0));
+	LEDS.showColor(CRGB(0,0,0));*/
+	rainbow();
+	
 	
  	/*LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
 	LEDS.showColor(CRGB(128, 0, 0))	;	delay(100);
@@ -257,6 +259,35 @@ void setup() {
 	Serial.begin(serialRate);
 	Serial.print(F("Ada\n"));
 }
+
+
+void rainbow() {
+	CRGB start_color=CRGB(127,127,127);
+	CRGB end_color=CRGB(0,0,0);
+	CRGB a = CRGB::Blue;
+	CRGB b = CRGB::Red;
+	CRGB c = CRGB::Yellow;
+	CRGB d = CRGB::Green;  
+	CRGB leds_rainbow[NUM_LEDS];
+	fill_gradient_RGB(leds_rainbow,0,a,7,b);
+	fill_gradient_RGB(leds_rainbow,8,b,15,c);
+	fill_gradient_RGB(leds_rainbow,16,c,23,d);
+	fill_gradient_RGB(leds_rainbow,24,d,31,a);
+	for (uint8_t j = 0; j < 255; j++) {
+		for (uint8_t i = 0; i < NUM_LEDS; i++) {
+			leds[i]=blend(start_color,leds_rainbow[i],j);  
+		}
+		FastLED.show();    
+	}
+	for (uint8_t j = 0; j < 255; j++) {
+		for (uint8_t i = 0; i < NUM_LEDS; i++) {
+			leds[i]=blend(leds_rainbow[i],end_color,j);  
+		}
+		FastLED.show();    
+	}
+
+}
+
 
 uint32_t divu5(uint32_t n) { 
 	//http://www.hackersdelight.org/divcMore.pdf
