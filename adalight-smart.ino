@@ -1,9 +1,16 @@
-
 /* My adalight script for arduino nano.
+ * 
  * It does color correction, step based temporal smoothing,
- * averaged window based temporal smoothing and scene change detection.
- * It works at least at 50fps while driving 33 leds.
+ * 4bit dithering, averaged window based temporal smoothing 
+ * and scene change detection.
+ * 
+ * Each feature can be switched ON/OFF while the sketch is running
+ * by sending simple strings to the serial.
+ * 
+ * It is Hardly optimized and can sustain more than 50fps
+ * while driving 33 leds with all the features enabled.
 */
+
 #pragma GCC optimize ("-O3")
 #pragma GCC push_options
 
