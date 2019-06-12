@@ -292,7 +292,7 @@ void rainbow() {
 		}
 		FastLED.show();    
 	}
-
+	LEDS.showColor(CRGB(0, 0, 0));
 }
 
 
