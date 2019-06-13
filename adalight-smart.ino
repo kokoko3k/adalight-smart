@@ -463,7 +463,7 @@ uint16_t fsmooth_value_step(uint16_t fStart, uint16_t fEnd, uint8_t ipSteps ){
 	
 	if (fStart > fEnd) {
 			return ( fStart - fstep );
-		} else {
+	} else {
 			return ( fStart + fstep );   
 	}
 }
@@ -491,15 +491,15 @@ void smooth_leds(FCRGB pfOldLeds[], FCRGB pfLeds[]){
 	bool changing_scene = (steps_left_to_change_scene > 0);
 	for (uint8_t i = 0; i < NUM_LEDS; i++) {
 		if (changing_scene) {
-				iSteps = steps_left_to_change_scene;
-			} else {
-				iSteps=new_iSteps(pfOldLeds[i],pfLeds[i]) ;
+			iSteps = steps_left_to_change_scene;
+		} else {
+			iSteps=new_iSteps(pfOldLeds[i],pfLeds[i]) ;
 		}
 		if (iSteps > 0) {
 			pfLeds[i].r = fsmooth_value_step(pfOldLeds[i].r,pfLeds[i].r,iSteps) ;
 			pfLeds[i].g = fsmooth_value_step(pfOldLeds[i].g,pfLeds[i].g,iSteps) ;
 			pfLeds[i].b = fsmooth_value_step(pfOldLeds[i].b,pfLeds[i].b,iSteps) ;
-			}
+		}
 	}
 }
 
@@ -578,14 +578,6 @@ void make_dithered_leds(FCRGB source_fleds[],CRGB dithered_leds[], byte step) {
 }
 
 void show_step_dithering() {
-	/* Useless?
-	for (uint8_t i = 0; i < NUM_LEDS; i++) {
-		leds[i].r = (fleds[i].r) / fixmathscale ;
-		leds[i].g = (fleds[i].g) / fixmathscale ;
-		leds[i].b = (fleds[i].b) / fixmathscale ;
-	}
-	*/
-
 	FastLED.setBrightness(255);
 
 	make_dithered_leds(fleds,leds,0); 	FastLED.show() ;
@@ -680,8 +672,7 @@ void loop() {
 		FastLED.show() ;
 		FastLED.show() ;
 		FastLED.show() ;
-		
-			} else {
+	} else {
 		show_step_dithering();
 	}
 
