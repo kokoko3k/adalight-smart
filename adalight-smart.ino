@@ -247,15 +247,13 @@ const PROGMEM uint16_t gamma_b[] = {
 };
 */
 void setup() {
+	Serial.begin(serialRate);
+	Serial.print(F("Ada\n"));
 	FastLED.addLeds<WS2811, DATA_PIN, COLOR_ORDER>(leds,NUM_LEDS);
 	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
-	Serial.begin(serialRate);
-	Serial.print(F("Ada\n"));
 	delay(500);
-	rainbow(20);
-	Serial.begin(serialRate);
-	Serial.print(F("Ada\n"));
+	rainbow(40);
 }
 
 void rainbow(uint8_t slowness) {
