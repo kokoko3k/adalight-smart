@@ -250,19 +250,12 @@ void setup() {
 	FastLED.addLeds<WS2811, DATA_PIN, COLOR_ORDER>(leds,NUM_LEDS);
 	FastLED.setDither(1); 
 	FastLED.setBrightness(255);
-	delay(1000);
-	/*for(i = 127;  i > 0; --i) {
-		LEDS.showColor(CRGB(i, i, i));
-		delay(5);
-	}
-	LEDS.showColor(CRGB(0,0,0));*/
+	delay(500);
+
+	
+	
 	rainbow();
-	
-	
- 	/*LEDS.showColor(CRGB(0, 0, 0))	;	delay(100);
-	LEDS.showColor(CRGB(128, 0, 0))	;	delay(100);
-	LEDS.showColor(CRGB(0, 0, 0))	;delay(100);
-	LEDS.showColor(CRGB(0, 0, 0)) ;delay(100);*/
+
 	Serial.begin(serialRate);
 	Serial.print(F("Ada\n"));
 }
@@ -283,14 +276,14 @@ void rainbow() {
 	for (uint8_t j = 0; j < 255; j++) {
 		for (uint8_t i = 0; i < NUM_LEDS; i++) {
 			leds[i]=blend(start_color,leds_rainbow[i],j);  
-		}
-		FastLED.show();    
+		} 
+		FastLED.delay(10);
 	}
 	for (uint8_t j = 0; j < 255; j++) {
 		for (uint8_t i = 0; i < NUM_LEDS; i++) {
 			leds[i]=blend(leds_rainbow[i],end_color,j);  
 		}
-		FastLED.show();    
+		FastLED.delay(10);
 	}
 	LEDS.showColor(CRGB(0, 0, 0));
 }
