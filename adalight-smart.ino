@@ -11,12 +11,15 @@
  * while driving 33 leds with all the features enabled.
 */
 
-#pragma GCC optimize ("-O3")
+#pragma GCC optimize ("-O3")	//For some reason, this option produces a segmentation fault
+								//if the sketch is compiled through arduino ide.
+								//Compile this way instead: 
+								//	arduino --board arduino:avr:nano:cpu=atmega328old --port /dev/ttyUSB0 --upload adalight.smart
 #pragma GCC push_options
 
 #include "FastLED.h"
 
-#define NUM_LEDS 33
+#define NUM_LEDS 31
 #define DATA_PIN 11
 #define CLOCK_PIN 13
 #define COLOR_ORDER BRG // RGB //GRB
@@ -678,4 +681,3 @@ void loop() {
 	//Serial.println(leds[0].r);
 	Serial.print(F("tot ")) ; Serial.println(millis()-tstart);
 }
-

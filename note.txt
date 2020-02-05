@@ -1,0 +1,34 @@
+Correzione colore: 
+	il blu va a 1 a partire dal numero 51
+	51/255 = 0.2 -> minima luminanza = 0.2 -> hyperion-remote -b "0.2 0.2 0.2"
+					compensa la saturazione: hyperion-remote -u 1.2 o anche -u 2.
+
+	Se riusciamo a usare il dithering (nostro), allora il blu è visibile a 28 (raggiunge 20)
+	hyperion-remote -b "0.11 0.11 0.11"
+	hyperion-remote -u 1.11
+
+	oppure è visibile a 0.5 a 39
+	hyperion-remote -b "0.16 0.16 0.16"
+	hyperion-remote -u 1.16
+
+
+Usare l'hardware SPI?
+	Arduino ATMega328P based board:
+    Hardware SPI - data 11, clock 13
+
+	...pare non cambi nulla, almeno nel tempo di esecuzione.
+	
+Limitare l'energia, dimma davvero i led, oppure semplicemente me li scala?
+	   // limit my draw to 5W
+   FastLED.setMaxPowerInMilliWatts(5000);
+      // limit my draw to 1A at 5v of power draw
+   FastLED.setMaxPowerInVoltsAndMilliamps(5,1000); 
+
+----------
+con lo sketch adalight-smart, 
+	mio dithering mio forzato, window average: 60 fps 
+	mio dithering mio forzato, senza window average: 66.5 fps <-- in questo caso potrei anche fare un dithering a 6bit.
+	con fastled dithering forzato e window average: 50fps, non 1 in più
+	con fastled dithering forzato senza window average: 52fps
+
+
